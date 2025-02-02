@@ -48,49 +48,48 @@ while True:
             r.adjust_for_ambient_noise(source, duration=1.0)
             r.pause_threshold = 0.6
 
-            print("Listening for wake word...")
+            print("Listening for command...")
             audio = r.listen(source)
 
             MyText = r.recognize_google(audio).lower()
             print(f"User said: {MyText}")
 
-            if WAKE_WORD in MyText:
-                print("Wake word detected. Listening for command...")
-
-                audio = r.listen(source)
-                command = r.recognize_google(audio).lower()
+            # Check if the wake word is at the start
+            if MyText.startswith(WAKE_WORD):
+                command = MyText[len(WAKE_WORD):].strip()  # Extract the command after wake word
                 print(f"Command received: {command}")
 
-                # Generate AI response
-                response = client.chat.completions.create(
-                    model="gpt-4o",
-                    messages=[
-                        {"role": "system", "content": indoctrination},
-                        {"role": "user", "content": command}
-                    ],
-                    temperature=0.5,
-                    max_tokens=200
-                )
+                if command:  # Ensure there is a command after the wake word
+                    # Generate AI response
+                    response = client.chat.completions.create(
+                        model="gpt-4o",
+                        messages=[
+                            {"role": "system", "content": indoctrination},
+                            {"role": "user", "content": command}
+                        ],
+                        temperature=0.5,
+                        max_tokens=200
+                    )
 
-                response_text = response.choices[0].message.content.strip()
-                response_text = response_text.replace("Monkey Butler:", "").strip()
-                print(f"Bot response: {response_text}")
+                    response_text = response.choices[0].message.content.strip()
+                    response_text = response_text.replace("Monkey Butler:", "").strip()
+                    print(f"Bot response: {response_text}")
 
-                # Convert AI response to speech using AWS Polly
-                polly_response = polly_client.synthesize_speech(
-                    VoiceId='Brian',
-                    OutputFormat='mp3',
-                    Text=response_text,
-                    Engine='neural'
-                )
+                    # Convert AI response to speech using AWS Polly
+                    polly_response = polly_client.synthesize_speech(
+                        VoiceId='Brian',
+                        OutputFormat='mp3',
+                        Text=response_text,
+                        Engine='neural'
+                    )
 
-                filename = "speech_output.mp3"
-                with open(filename, 'wb') as file:
-                    file.write(polly_response['AudioStream'].read())
+                    filename = "speech_output.mp3"
+                    with open(filename, 'wb') as file:
+                        file.write(polly_response['AudioStream'].read())
 
-                # Play the audio in a separate thread and then delete it
-                audio_thread = threading.Thread(target=play_audio, args=(filename,))
-                audio_thread.start()
+                    # Play the audio in a separate thread and then delete it
+                    audio_thread = threading.Thread(target=play_audio, args=(filename,))
+                    audio_thread.start()
 
     except sr.RequestError as e:
         print(f"Speech Recognition API error: {e}")
