@@ -5,6 +5,8 @@ import boto3
 import time
 import pygame
 import threading
+import wave
+import struct
 
 # ============================
 # Configuration / API Keys
@@ -44,11 +46,11 @@ Monkey Butler does not say his name in responses."""
 WAKE_WORD = "butler"
 
 # ============================
-# Audio Playback Function
+# Audio Playback Function (Plays WAV)
 # ============================
 def play_audio(filename):
     """
-    Plays an MP3 file using pygame, then removes the file.
+    Plays a WAV file using pygame.
     """
     try:
         pygame.mixer.init()
@@ -62,21 +64,23 @@ def play_audio(filename):
         pygame.mixer.music.stop()
         pygame.mixer.quit()
 
-        # Add a short delay to ensure Windows (if you're on Windows)
-        # has released the file handle
-        time.sleep(0.2)
-
-        # Attempt removing file a few times if needed
-        for _ in range(5):
-            try:
-                os.remove(filename)
-                break
-            except PermissionError:
-                time.sleep(0.2)
-
     except Exception as e:
         print(f"Error in play_audio: {e}")
 
+# ============================
+# Convert AWS Polly PCM to WAV
+# ============================
+def save_pcm_as_wav(pcm_data, filename, sample_rate=16000):
+    """
+    Converts raw PCM data from AWS Polly into a WAV file with proper headers.
+    Ensures it is 16-bit PCM, 44.1 kHz, Mono.
+    """
+    # Ensure the sample width is set to 2 bytes (16-bit PCM)
+    with wave.open(filename, 'wb') as wav_file:
+        wav_file.setnchannels(1)  # Mono
+        wav_file.setsampwidth(2)  # 16-bit sample width
+        wav_file.setframerate(sample_rate)  # 16kHz or 44.1kHz sample rate
+        wav_file.writeframes(pcm_data)
 # ============================
 # Speech Recognition Callback
 # ============================
@@ -107,28 +111,28 @@ def recognition_callback(recognizer, audio_data):
                 )
 
                 response_text = response.choices[0].message.content.strip()
-                # Clean up any "Monkey Butler:" references
                 response_text = response_text.replace("Monkey Butler:", "").strip()
                 print(f"Bot response: {response_text}")
 
-                # Convert response to speech with AWS Polly
+                # Convert response to speech with AWS Polly (PCM format)
                 polly_response = polly_client.synthesize_speech(
                     VoiceId='Brian',
-                    OutputFormat='wav',
+                    OutputFormat='pcm',  # Raw PCM instead of MP3
                     Text=response_text,
                     Engine='neural'
                 )
 
-                filename = "speech_output.mp3"
-                with open(filename, 'wb') as file:
-                    file.write(polly_response['AudioStream'].read())
+                filename = "speech_output.wav"
+
+                # Convert PCM to WAV
+                pcm_data = polly_response['AudioStream'].read()
+                save_pcm_as_wav(pcm_data, filename)
 
                 # Play the audio in a separate thread
                 audio_thread = threading.Thread(target=play_audio, args=(filename,))
                 audio_thread.start()
 
     except sr.UnknownValueError:
-        # No blocking pause—just a quick note or pass silently.
         print("Could not understand the audio.")
     except sr.RequestError as e:
         print(f"Speech Recognition API error: {e}")
@@ -159,9 +163,7 @@ def main():
     try:
         while True:
             time.sleep(0.1)
-            # You can do other tasks here if needed
     except KeyboardInterrupt:
-        # Stop background listening when the user terminates
         stop_listening(wait_for_stop=False)
         print("Stopped listening in background.")
 

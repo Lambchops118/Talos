@@ -3,8 +3,9 @@ import openai
 import speech_recognition as sr
 import boto3
 import time
-import pygame
 import threading
+import wave
+import pyaudio
 
 # ============================
 # Configuration / API Keys
@@ -48,31 +49,38 @@ WAKE_WORD = "butler"
 # ============================
 def play_audio(filename):
     """
-    Plays an MP3 file using pygame, then removes the file.
+    Plays a WAV file using PyAudio, then removes the file.
     """
     try:
-        pygame.mixer.init()
-        pygame.mixer.music.load(filename)
-        pygame.mixer.music.play()
+        chunk = 1024
 
-        # Block until playback finishes
-        while pygame.mixer.music.get_busy():
-            time.sleep(0.1)
+        # Open the WAV file
+        with wave.open(filename, 'rb') as wf:
+            pa = pyaudio.PyAudio()
+            
+            # Open a stream with the correct settings
+            stream = pa.open(
+                format=pa.get_format_from_width(wf.getsampwidth()),
+                channels=wf.getnchannels(),
+                rate=wf.getframerate(),
+                output=True
+            )
 
-        pygame.mixer.music.stop()
-        pygame.mixer.quit()
+            data = wf.readframes(chunk)
 
-        # Add a short delay to ensure Windows (if you're on Windows)
-        # has released the file handle
+            # Write the audio data to the stream in chunks
+            while data:
+                stream.write(data)
+                data = wf.readframes(chunk)
+
+            # Stop and close the stream
+            stream.stop_stream()
+            stream.close()
+            pa.terminate()
+
+        # Brief delay just to ensure the file is no longer in use
         time.sleep(0.2)
-
-        # Attempt removing file a few times if needed
-        for _ in range(5):
-            try:
-                os.remove(filename)
-                break
-            except PermissionError:
-                time.sleep(0.2)
+        os.remove(filename)
 
     except Exception as e:
         print(f"Error in play_audio: {e}")
@@ -111,24 +119,31 @@ def recognition_callback(recognizer, audio_data):
                 response_text = response_text.replace("Monkey Butler:", "").strip()
                 print(f"Bot response: {response_text}")
 
-                # Convert response to speech with AWS Polly
+                # Synthesize Speech from AWS Polly as raw PCM
                 polly_response = polly_client.synthesize_speech(
                     VoiceId='Brian',
-                    OutputFormat='wav',
+                    OutputFormat='pcm',       # Raw PCM
+                    SampleRate='8000',       # 16 kHz, 16-bit, mono
                     Text=response_text,
                     Engine='neural'
                 )
 
-                filename = "speech_output.mp3"
-                with open(filename, 'wb') as file:
-                    file.write(polly_response['AudioStream'].read())
+                # Wrap raw PCM data in a WAV container
+                filename = "speech_output.wav"
+                pcm_data = polly_response['AudioStream'].read()
+
+                with wave.open(filename, 'wb') as wf:
+                    wf.setnchannels(1)          # Polly returns mono
+                    wf.setsampwidth(2)         # 16-bit audio
+                    wf.setframerate(8000)     # Sample rate
+                    wf.writeframesraw(pcm_data)
 
                 # Play the audio in a separate thread
                 audio_thread = threading.Thread(target=play_audio, args=(filename,))
                 audio_thread.start()
 
     except sr.UnknownValueError:
-        # No blocking pause—just a quick note or pass silently.
+        # Could not understand the audio
         print("Could not understand the audio.")
     except sr.RequestError as e:
         print(f"Speech Recognition API error: {e}")
