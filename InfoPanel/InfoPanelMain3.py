@@ -138,6 +138,8 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
         width=5
     )
 
+
+
     # --------------------------------------------------
     # Title, time, date, etc. Use base coords for their positions
     draw_text_centered(time_readable, base_w / 2, base_h / 2.3, color, 35)
