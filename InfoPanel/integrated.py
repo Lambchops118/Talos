@@ -5,6 +5,7 @@ import threading
 import os
 import wave
 import math
+import json
 
 # === PYGAME & RELATED IMPORTS ===
 import pygame
@@ -46,6 +47,50 @@ Monkey Butler does not say his name in responses."""
 r = sr.Recognizer()
 WAKE_WORD = "butler"
 
+# =============== FUNCTION DICTIONARY ====================
+
+functions = [
+    {
+        "name": "water_plants",
+        "description": "Water the plants in the house.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "pot_number": {
+                    "type": "integer",
+                    "description": "The number of the pot to water."
+                }
+
+            },
+            "required": ["pot_number"]
+        }
+    },
+
+    {
+        "name": "turn_on_lights",
+        "description": "Turn on the lights in a specific room.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "room": {
+                    "type": "string",
+                    "description": "The room where the lights should be turned on."
+                }
+            },
+            "required": ["room"]
+        }
+    }
+]
+# =============== FUNCTIONS ===================
+
+def water_plants(pot_number):
+    print("THIS IS THE PLACEHOLDER FOR WATERING PLANTS" + str(pot_number))
+    return f"Watering pot number {pot_number}."
+
+def turn_on_lights(room):
+    print("THIS IS THE PLACEHOLDER FOR TURNING ON LIGHTS IN " + room)
+    return f"Turning on lights in the {room}."
+
 
 # =============== AUDIO PLAYBACK ===============
 def play_audio(filename):
@@ -68,7 +113,7 @@ def play_audio(filename):
                 data = wf.readframes(chunk)
             stream.stop_stream()
             stream.close()
-            #pa.terminate()
+            pa.terminate()
 
         # Slight pause to ensure file is no longer in use
         time.sleep(0.2)
@@ -96,21 +141,92 @@ def recognition_callback(recognizer, audio_data, cmd_queue):
             if command:
                 # Generate GPT response
                 response = client.chat.completions.create(
-                    model="gpt-3.5-turbo",
+                    #model="gpt-3.5-turbo",
+                    model="gpt-4-0613",
                     messages=[
                         {"role": "system", "content": indoctrination},
                         {"role": "user", "content": command}
                     ],
+                    functions=functions,
+                    function_call="auto",
                     temperature=0.5,
                     max_tokens=150
                 )
-                response_text = response.choices[0].message.content.strip()
+                response_text = response.choices[0].message
+
+                #Check to see if model wants to call a function BEFORE stripping and processing text
+                
+                if response_text.function_call:
+                    function_name = response_text.function_call.name
+                    function_args = response_text.function_call.arguments
+                    print(f"FUNCTION CALL DETECTED: {function_name} with args {function_args}")
+
+                    # Here you would implement the logic to execute the function
+                    # For example, if function_name == "water_plants", call the appropriate function
+                    parsed_args = json.loads(function_args)
+
+                    if function_name == "water_plants":
+                        result = water_plants(**parsed_args)
+
+                        followup = client.chat.completions.create(
+                            model="gpt-4-0613", ##maybe this one can be a lighter model
+                            messages=[
+                                {"role": "system", "content": indoctrination},
+                                {"role": "user", "content": command},
+                                {"role": "assistant", "function_call": {
+                                  "name": function_name,
+                                   "arguments": function_args
+                              }},
+                              {"role": "function", "name": function_name, "content": result}
+                          ],
+                          temperature=0.5,
+                          max_tokens=150
+                        )
+
+                        response_text = followup.choices[0].message.content.strip()
+                    
+                    if function_name == "turn_on_lights":
+                        result = turn_on_lights(**parsed_args)
+
+                        followup = client.chat.completions.create(
+                            model="gpt-4-0613",
+                            messages=[
+                                {"role": "system", "content": indoctrination},
+                                {"role": "user", "content": command},
+                                {"role": "assistant", "function_call": {
+                                  "name": function_name,
+                                   "arguments": function_args
+                              }},
+                              {"role": "function", "name": function_name, "content": result}
+                          ],
+                          temperature=0.5,
+                          max_tokens=150
+                        )
+
+                        response_text = followup.choices[0].message.content.strip()
+
+                    else:
+                        response_text = f"Unknown function: {function_name}"
+                else:
+                    response_text = response_text.content.strip()
+                        
+
+                #response_text = response.choices[0].message.content.strip()
                 response_text = response_text.replace("Monkey Butler:", "").strip()
                 print(f"Bot response: {response_text}")
 
                 # Add a short note to the queue so GUI can display it
                 # For instance, we store the recognized "command" or entire "response_text."
                 cmd_queue.put(("VOICE_CMD", command, response_text))
+
+                #Check to see if the model wants to call a function
+                # if response_text.get("function_call"):
+                #     function_name = response_text["function_call"]["name"]
+                #     function_args = response_text["function_call"]["arguments"]
+                #     print(f"Function call detected: {function_name} with args {function_args}")
+
+                #     # Here you would implement the logic to execute the function
+                #     # For example, if function_name == "water_plants", call the appropriate function
 
                 # Synthesize TTS via Polly (raw PCM)
                 polly_response = polly_client.synthesize_speech(
