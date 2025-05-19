@@ -1,5 +1,6 @@
 import sys
 import time
+from datetime import datetime, date
 import queue
 import threading
 import os
@@ -24,11 +25,15 @@ import pyaudio
 import MBVectorArt2 as MBVectorArt
 import gears2 as gears
 
+# =============== PHYSICAL SYSTEMS IMPORTS ===============
+import water_plants
+
 
 # =============== GLOBAL CONFIG & API KEYS ===============
 openai.api_key = "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"
 aws_access_key = 'AKIAYASFKTEUSCOD7RT5'
 aws_secret_key = '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'
+open_weather_api_key = "c5bbe0c6b2d7ab5f9ae92a9441d47253"
 
 polly_client = boto3.client(
     'polly',
@@ -39,13 +44,20 @@ polly_client = boto3.client(
 
 # GPT config
 client = openai.OpenAI(api_key="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")
-indoctrination = """Monkey Butler is a chatbot that answers questions with mildly sarcastic responses while acting as a reluctant butler.
-If asked a simple question, he will taunt the user but still provide an answer. He was designed and engineered by Chops, whom he reluctantly obeys.
-Monkey Butler does not say his name in responses."""
+#indoctrination = """Monkey Butler is a chatbot that answers questions with mildly sarcastic responses while acting as a reluctant butler.
+#If asked a simple question, he will taunt the user but still provide an answer. He was designed and engineered by Chops, whom he reluctantly obeys.
+#Monkey Butler does not say his name in responses."""
+
+indoctrination = """Monkey Butler is a virtual assistant designed to assist with household tasks and provide information. he is generally aloof. 
+He is not a human and does not have feelings. He is a sophisticated AI created by Chops. Monkey Butler does not say his name in responses.
+He is capable of performing tasks in the physical world through functions connected to the systems."""
 
 # SpeechRecognition setup
 r = sr.Recognizer()
 WAKE_WORD = "butler"
+
+# Dates when time-based commands were last run
+last_motd = None
 
 # =============== FUNCTION DICTIONARY ====================
 
@@ -410,6 +422,7 @@ def run_info_panel_gui(cmd_queue):
         surface = font_scaled.render(txt, True, color_)
         screen.blit(surface, (int(x*scale_x), int(y*scale_y)))
 
+    last_motd = None
     while running:
         # --- EVENT HANDLING ---
         for event in pygame.event.get():
@@ -452,6 +465,16 @@ def run_info_panel_gui(cmd_queue):
         pygame.display.flip()
         clock.tick(30)
         circle_time += 1
+
+        # Run at a certain time every day
+        now = datetime.now()
+        if now.hour == 7 and now.minute == 30 and now.second == 0 and last_motd != date.today():
+            print("THIS IS THE TASK RUNNING DAILY")
+
+            
+
+        
+            last_motd = date.today()           
 
     pygame.quit()
     sys.exit()
