@@ -45,13 +45,30 @@ def get_weather_report(api_key, city):
     temp_min = min(today_temps) if today_temps else None
 
     return {
-        "current_temperature": current_temp,
-        "current_weather": current_weather,
-        "today_high": temp_max,
-        "today_low": temp_min
+        #"current_temperature": current_temp,
+        #"current_weather": current_weather,
+        #"today_high": temp_max,
+        #"today_low": temp_min
+
+        
+        #f"Current temperature: {report['current_temperature']}°C\n"
+        #f"Current weather: {report['current_weather']}\n"
+        #f"Today's high: {report['today_high']}°C\n"
+        #f"Today's low: {report['today_low']}°C\n"
+        #f"Forecast summary: {report['forecast_summary']}\n\n"
+        #"Summarize the weather in one or two sentences for a morning report."
+
+        f"Current temperature: {current_temp}°C"
+        f"Current weather: {current_weather}\n"
+        f"Today's high: {temp_max}°C\n"
+        f"Today's low: {temp_min}°C\n"
+        "Summarize the weather in one or two sentences for a morning report."
+        
     }
 
-report = get_weather_report(api_key, city)
+#report = get_weather_report(api_key, city)
 
-for key, value in report.items():
-    print(f"{key}: {value}")
+#for key, value in report.items():
+#    print(f"{key}: {value}")
+
+print(get_weather_report(api_key, city))
