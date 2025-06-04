@@ -1,0 +1,6 @@
+pygame
+openai
+boto3
+pyaudio
+SpeechRecognition
+pytest
