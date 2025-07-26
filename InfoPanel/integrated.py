@@ -56,6 +56,9 @@ He is capable of performing tasks in the physical world through functions connec
 r = sr.Recognizer()
 WAKE_WORD = "butler"
 
+#Create a global PyAudio instance for audio playback, instead of initializing it in the function
+audio_interface = pyaudio.PyAudio()
+
 # Dates when time-based commands were last run
 last_motd = None
 
@@ -112,9 +115,8 @@ def play_audio(filename):
     try:
         chunk = 1024
         with wave.open(filename, 'rb') as wf:
-            pa = pyaudio.PyAudio()
-            stream = pa.open(
-                format=pa.get_format_from_width(wf.getsampwidth()),
+            stream = audio_interface.open(
+                format=audio_interface.get_format_from_width(wf.getsampwidth()),
                 channels=wf.getnchannels(),
                 rate=wf.getframerate(),
                 output=True
@@ -125,7 +127,6 @@ def play_audio(filename):
                 data = wf.readframes(chunk)
             stream.stop_stream()
             stream.close()
-            pa.terminate()
 
         # Slight pause to ensure file is no longer in use
         time.sleep(0.2)
@@ -488,10 +489,12 @@ if __name__ == "__main__":
     # 2) Start background listening
     stop_listening = run_voice_recognition(command_queue)
 
-    # 3) Run the Pygame GUI in the main thread
-    run_info_panel_gui(command_queue)
-
-    # 4) When Pygame loop ends, optionally stop the background thread
-    if stop_listening:
-        stop_listening(wait_for_stop=False)
-    print("Exiting cleanly.")
+    try:
+            # 3) Run the Pygame GUI in the main thread
+            run_info_panel_gui(command_queue)
+    finally:
+        # 4) When Pygame loop ends, optionally stop the background thread
+        if stop_listening:
+            stop_listening(wait_for_stop=False)
+        audio_interface.terminate()
+        print("Exiting cleanly.")
