@@ -142,7 +142,7 @@ def play_audio(filename):
         # Slight pause to ensure file is no longer in use
         time.sleep(0.2)
         os.remove(filename)
-        print(f"Removed file: {filename}")
+        print(f"ln 145 Removed file: {filename}")
 
     except Exception as e:
         print(f"Error in play_audio: {e}")
@@ -180,9 +180,14 @@ def run_voice_recognition(processing_queue):
     print("Setting up voice recognition...")
     mic = sr.Microphone()
     print("Microphone initialized.")
+    #print(f"!!!!!!!!!!!!!!Energy threshold starting: {r.energy_threshold}!!!!!!!!!!!!!!!")
     with mic as source:
         # Adjust for ambient noise
         r.adjust_for_ambient_noise(source, duration=0.5)
+        #print(f"!!!!!!!!!!!!!!Energy threshold: {r.energy_threshold}!!!!!!!!!!!!!!!")
+        r.dynamic_energy_threshold = False
+        # Optionally tune:
+        r.energy_threshold = 300  # adjust empirically
         print("Calibrated for ambient noise. Starting background listening...")
 
     # Provide a lambda or partial so we can pass 'processing_queue' into the callback
@@ -272,7 +277,7 @@ def handle_command(command, gui_queue):
             polly_client.synthesize_speech(
                 VoiceId='Brian',
                 OutputFormat='pcm',
-                SampleRate='8000',
+                SampleRate='16000',
                 Text=response_text,
                 Engine='neural'
             ).get('AudioStream')
@@ -285,7 +290,7 @@ def handle_command(command, gui_queue):
             print("Writing PCM data to WAV file...")
             wf.setnchannels(1)
             wf.setsampwidth(2)
-            wf.setframerate(8000)
+            wf.setframerate(16000)
             wf.writeframesraw(pcm_data)
             print(f"WAV file '{filename}' created successfully.")
 
