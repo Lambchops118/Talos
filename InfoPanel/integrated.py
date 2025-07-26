@@ -7,6 +7,8 @@ import os
 import wave
 import math
 import json
+import contextlib
+from concurrent.futures import ThreadPoolExecutor
 
 # === PYGAME & RELATED IMPORTS ===
 import pygame
@@ -182,93 +184,102 @@ def run_voice_recognition(processing_queue):
 # Worker thread that processes commands recognized by the speech
 # callback. It performs the GPT interaction, optional function
 # execution, text-to-speech synthesis and audio playback.
-def process_commands(processing_queue, gui_queue):
-    while True:
-        command = processing_queue.get()
-        if command is None:
-            break
-        try:
-            response = client.chat.completions.create(
-                model="gpt-4-0613",
-                messages=[
-                    {"role": "system", "content": indoctrination},
-                    {"role": "user", "content": command}
-                ],
-                functions=functions,
-                function_call="auto",
-                temperature=0.5,
-                max_tokens=150
-            )
-            response_text = response.choices[0].message
+def handle_command(command, gui_queue):
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4-0613",
+            messages=[
+                {"role": "system", "content": indoctrination},
+                {"role": "user", "content": command}
+            ],
+            functions=functions,
+            function_call="auto",
+            temperature=0.5,
+            max_tokens=150
+        )
+        response_text = response.choices[0].message
 
-            if response_text.function_call:
-                function_name = response_text.function_call.name
-                function_args = response_text.function_call.arguments
-                print(f"FUNCTION CALL DETECTED: {function_name} with args {function_args}")
-                parsed_args = json.loads(function_args)
+        if response_text.function_call:
+            function_name = response_text.function_call.name
+            function_args = response_text.function_call.arguments
+            print(f"FUNCTION CALL DETECTED: {function_name} with args {function_args}")
+            parsed_args = json.loads(function_args)
 
-                if function_name == "water_plants":
-                    result = water_plants(**parsed_args)
-                    followup = client.chat.completions.create(
-                        model="gpt-4-0613",
-                        messages=[
-                            {"role": "system", "content": indoctrination},
-                            {"role": "user", "content": command},
-                            {"role": "assistant", "function_call": {"name": function_name, "arguments": function_args}},
-                            {"role": "function", "name": function_name, "content": result}
-                        ],
-                        temperature=0.5,
-                        max_tokens=150
-                    )
-                    response_text = followup.choices[0].message.content.strip()
-                elif function_name == "turn_on_lights":
-                    result = turn_on_lights(**parsed_args)
-                    followup = client.chat.completions.create(
-                        model="gpt-4-0613",
-                        messages=[
-                            {"role": "system", "content": indoctrination},
-                            {"role": "user", "content": command},
-                            {"role": "assistant", "function_call": {"name": function_name, "arguments": function_args}},
-                            {"role": "function", "name": function_name, "content": result}
-                        ],
-                        temperature=0.5,
-                        max_tokens=150
-                    )
-                    response_text = followup.choices[0].message.content.strip()
-                else:
-                    response_text = f"Unknown function: {function_name}"
+            if function_name == "water_plants":
+                result = water_plants(**parsed_args)
+                followup = client.chat.completions.create(
+                    model="gpt-4-0613",
+                    messages=[
+                        {"role": "system", "content": indoctrination},
+                        {"role": "user", "content": command},
+                        {"role": "assistant", "function_call": {"name": function_name, "arguments": function_args}},
+                        {"role": "function", "name": function_name, "content": result}
+                    ],
+                    temperature=0.5,
+                    max_tokens=150
+                )
+                response_text = followup.choices[0].message.content.strip()
+            elif function_name == "turn_on_lights":
+                result = turn_on_lights(**parsed_args)
+                followup = client.chat.completions.create(
+                    model="gpt-4-0613",
+                    messages=[
+                        {"role": "system", "content": indoctrination},
+                        {"role": "user", "content": command},
+                        {"role": "assistant", "function_call": {"name": function_name, "arguments": function_args}},
+                        {"role": "function", "name": function_name, "content": result}
+                    ],
+                    temperature=0.5,
+                    max_tokens=150
+                )
+                response_text = followup.choices[0].message.content.strip()
             else:
-                response_text = response_text.content.strip()
+                response_text = f"Unknown function: {function_name}"
+        else:
+            response_text = response_text.content.strip()
 
-            response_text = response_text.replace("Monkey Butler:", "").strip()
-            print(f"Bot response: {response_text}")
+        response_text = response_text.replace("Monkey Butler:", "").strip()
+        print(f"Bot response: {response_text}")
 
-            gui_queue.put(("VOICE_CMD", command, response_text))
+        gui_queue.put(("VOICE_CMD", command, response_text))
 
-            polly_response = polly_client.synthesize_speech(
+        with contextlib.closing(
+            polly_client.synthesize_speech(
                 VoiceId='Brian',
                 OutputFormat='pcm',
                 SampleRate='8000',
                 Text=response_text,
                 Engine='neural'
-            )
-            pcm_data = polly_response['AudioStream'].read()
+            ).get('AudioStream')
+        ) as stream:
+            pcm_data = stream.read()
 
-            filename = "speech_output.wav"
-            with wave.open(filename, 'wb') as wf:
-                wf.setnchannels(1)
-                wf.setsampwidth(2)
-                wf.setframerate(8000)
-                wf.writeframesraw(pcm_data)
+        filename = "speech_output.wav"
+        with wave.open(filename, 'wb') as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(8000)
+            wf.writeframesraw(pcm_data)
 
-            audio_thread = threading.Thread(target=play_audio, args=(filename,))
-            audio_thread.start()
-        except openai.OpenAIError as e:
-            print(f"OpenAI API Error: {e}")
-        except boto3.exceptions.Boto3Error as e:
-            print(f"AWS Polly Error: {e}")
-        except Exception as e:
-            print(f"Unexpected Error: {e}")
+        audio_thread = threading.Thread(target=play_audio, args=(filename,))
+        audio_thread.start()
+    except openai.OpenAIError as e:
+        print(f"OpenAI API Error: {e}")
+    except boto3.exceptions.Boto3Error as e:
+        print(f"AWS Polly Error: {e}")
+    except Exception as e:
+        print(f"Unexpected Error: {e}")
+
+
+def process_commands(processing_queue, gui_queue):
+    """Continuously read commands from ``processing_queue`` and submit them
+    to a thread pool so multiple commands can be handled concurrently."""
+    with ThreadPoolExecutor() as executor:
+        while True:
+            command = processing_queue.get()
+            if command is None:
+                break
+            executor.submit(handle_command, command, gui_queue)
 
 
 # =============== PYGAME INFO PANEL ===============
