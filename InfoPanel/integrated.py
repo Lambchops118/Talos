@@ -114,25 +114,35 @@ def play_audio(filename):
     """
     Plays a WAV file using PyAudio, then removes the file.
     """
+    print("Trying to Play Audio...")
     try:
         chunk = 1024
         with wave.open(filename, 'rb') as wf:
+            print("Opened WAV file successfully.")
             stream = audio_interface.open(
                 format=audio_interface.get_format_from_width(wf.getsampwidth()),
                 channels=wf.getnchannels(),
                 rate=wf.getframerate(),
                 output=True
             )
+            print("Audio stream opened successfully.")
             data = wf.readframes(chunk)
+            print("Reading frames from WAV file...")
             while data:
+                #print("Writing data to stream...")
                 stream.write(data)
+                #print("Data written to stream.")
                 data = wf.readframes(chunk)
+                #print("Reading next chunk of data...")
             stream.stop_stream()
+            print("Stopping stream...")
             stream.close()
+            print("Stream closed.")
 
         # Slight pause to ensure file is no longer in use
         time.sleep(0.2)
         os.remove(filename)
+        print(f"Removed file: {filename}")
 
     except Exception as e:
         print(f"Error in play_audio: {e}")
@@ -142,6 +152,7 @@ def play_audio(filename):
 def recognition_callback(recognizer, audio_data, processing_queue):
     """Background callback when speech is detected. It extracts the command
     after the wake word and places it on ``processing_queue`` for the worker."""
+    print("Recognition callback triggered.")
     try:
         print("Trying recognition...")
         text_spoken = recognizer.recognize_google(audio_data).lower()
@@ -151,6 +162,7 @@ def recognition_callback(recognizer, audio_data, processing_queue):
             print(f"Command received: {command}")
             if command:
                 processing_queue.put(command)
+                print(f"Command '{command}' added to processing queue.")
     except sr.UnknownValueError:
         print("Could not understand the audio.")
     except sr.RequestError as e:
@@ -165,17 +177,22 @@ def run_voice_recognition(processing_queue):
     Sets up background listening in a separate thread.
     The 'processing_queue' is used to pass recognized commands to the main Pygame loop.
     """
+    print("Setting up voice recognition...")
     mic = sr.Microphone()
+    print("Microphone initialized.")
     with mic as source:
         # Adjust for ambient noise
-        r.adjust_for_ambient_noise(source, duration=1.0)
+        r.adjust_for_ambient_noise(source, duration=0.5)
         print("Calibrated for ambient noise. Starting background listening...")
 
     # Provide a lambda or partial so we can pass 'processing_queue' into the callback
     def callback_wrapper(recognizer, audio_data):
+        print("poop")
         recognition_callback(recognizer, audio_data, processing_queue)
+        print("pee")
 
     # Listen in background
+    print("george floyd")
     stop_listening = r.listen_in_background(mic, callback_wrapper)
     print("Background listening started.")
     return stop_listening
@@ -185,7 +202,9 @@ def run_voice_recognition(processing_queue):
 # callback. It performs the GPT interaction, optional function
 # execution, text-to-speech synthesis and audio playback.
 def handle_command(command, gui_queue):
+    print(f"Handling command: {command}")
     try:
+        print("Creating OpenAI chat completion...")
         response = client.chat.completions.create(
             model="gpt-4-0613",
             messages=[
@@ -197,9 +216,12 @@ def handle_command(command, gui_queue):
             temperature=0.5,
             max_tokens=150
         )
+        print("OpenAI chat completion created successfully.")
         response_text = response.choices[0].message
+        print("Response from OpenAI received.")
 
         if response_text.function_call:
+            print("Function call detected in response.")
             function_name = response_text.function_call.name
             function_args = response_text.function_call.arguments
             print(f"FUNCTION CALL DETECTED: {function_name} with args {function_args}")
@@ -233,6 +255,7 @@ def handle_command(command, gui_queue):
                     max_tokens=150
                 )
                 response_text = followup.choices[0].message.content.strip()
+                print(f"Function '{function_name}' executed with result: {result}")
             else:
                 response_text = f"Unknown function: {function_name}"
         else:
@@ -242,7 +265,9 @@ def handle_command(command, gui_queue):
         print(f"Bot response: {response_text}")
 
         gui_queue.put(("VOICE_CMD", command, response_text))
+        print("Command added to GUI queue.")
 
+        print("Synthesizing speech with AWS Polly...")
         with contextlib.closing(
             polly_client.synthesize_speech(
                 VoiceId='Brian',
@@ -253,16 +278,21 @@ def handle_command(command, gui_queue):
             ).get('AudioStream')
         ) as stream:
             pcm_data = stream.read()
+            print("Speech synthesized successfully.")
 
         filename = "speech_output.wav"
         with wave.open(filename, 'wb') as wf:
+            print("Writing PCM data to WAV file...")
             wf.setnchannels(1)
             wf.setsampwidth(2)
             wf.setframerate(8000)
             wf.writeframesraw(pcm_data)
+            print(f"WAV file '{filename}' created successfully.")
 
         audio_thread = threading.Thread(target=play_audio, args=(filename,))
+        print("Starting audio playback thread...")
         audio_thread.start()
+        print("Audio playback thread started.")
     except openai.OpenAIError as e:
         print(f"OpenAI API Error: {e}")
     except boto3.exceptions.Boto3Error as e:
@@ -274,12 +304,19 @@ def handle_command(command, gui_queue):
 def process_commands(processing_queue, gui_queue):
     """Continuously read commands from ``processing_queue`` and submit them
     to a thread pool so multiple commands can be handled concurrently."""
+    print("Starting command processing worker...")
     with ThreadPoolExecutor() as executor:
+        print("Worker thread started. Waiting for commands...")
         while True:
+            print("Waiting for command in processing queue...")
             command = processing_queue.get()
+            print("JEWS!!!!")
             if command is None:
+                print("Received shutdown signal. Exiting command processing.")
                 break
+            print("peepee poopoo")
             executor.submit(handle_command, command, gui_queue)
+            print("eeeeeeeeeeee")
 
 
 # =============== PYGAME INFO PANEL ===============
@@ -373,6 +410,7 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
         gear_place(screen, 0, color_offline, 350, 125, scale_x, scale_y)
 
 def run_info_panel_gui(cmd_queue):
+    print("Starting Pygame GUI for Info Panel...")
     """
     The main Pygame loop. We poll the 'cmd_queue' each frame to see if
     there are new commands from the voice system, and we display them.
@@ -468,20 +506,27 @@ def run_info_panel_gui(cmd_queue):
 
 # =============== MAIN ENTRY POINT ===============
 if __name__ == "__main__":
+    print("Starting Talos Info Panel...")
     # 1) Queue for GUI updates
+    print("Creating command queue...")
     command_queue = queue.Queue()
     # 2) Queue for processing recognized commands
+    print("Creating processing queue...")
     processing_queue = queue.Queue()
 
     # 3) Start background listening
+    print("Starting background voice recognition...")
     stop_listening = run_voice_recognition(processing_queue)
 
     # 4) Start worker thread for command processing
+    print("Starting command processing worker...")
     worker = threading.Thread(target=process_commands, args=(processing_queue, command_queue))
     worker.start()
+    print("Command processing worker started.")
 
     try:
         # 5) Run the Pygame GUI in the main thread
+        print("Running Pygame GUI...")
         run_info_panel_gui(command_queue)
     finally:
         print("Got to the shutdown statement")
