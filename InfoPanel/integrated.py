@@ -141,6 +141,7 @@ def recognition_callback(recognizer, audio_data, processing_queue):
     """Background callback when speech is detected. It extracts the command
     after the wake word and places it on ``processing_queue`` for the worker."""
     try:
+        print("Trying recognition...")
         text_spoken = recognizer.recognize_google(audio_data).lower()
         print(f"User said: {text_spoken}")
         if text_spoken.startswith(WAKE_WORD):
@@ -421,7 +422,7 @@ def run_info_panel_gui(cmd_queue):
 
         # --- RENDER THE FRAME ---
         screen.fill((0, 0, 0))
-        draw_scanlines(screen, screen_width, screen_height)
+        #draw_scanlines(screen, screen_width, screen_height)
         static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time)
 
         # Animate monkey butler
