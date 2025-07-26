@@ -137,149 +137,30 @@ def play_audio(filename):
 
 
 # =============== RECOGNITION CALLBACK ===============
-def recognition_callback(recognizer, audio_data, cmd_queue):
-    """
-    Called in a background thread whenever speech is detected.
-    We pass 'cmd_queue' so we can send data to the GUI.
-    """
+def recognition_callback(recognizer, audio_data, processing_queue):
+    """Background callback when speech is detected. It extracts the command
+    after the wake word and places it on ``processing_queue`` for the worker."""
     try:
         text_spoken = recognizer.recognize_google(audio_data).lower()
         print(f"User said: {text_spoken}")
-
-        # Check the wake word
         if text_spoken.startswith(WAKE_WORD):
             command = text_spoken[len(WAKE_WORD):].strip()
             print(f"Command received: {command}")
-
             if command:
-                # Generate GPT response
-                response = client.chat.completions.create(
-                    #model="gpt-3.5-turbo",
-                    model="gpt-4-0613",
-                    messages=[
-                        {"role": "system", "content": indoctrination},
-                        {"role": "user", "content": command}
-                    ],
-                    functions=functions,
-                    function_call="auto",
-                    temperature=0.5,
-                    max_tokens=150
-                )
-                response_text = response.choices[0].message
-
-                #Check to see if model wants to call a function BEFORE stripping and processing text
-                
-                if response_text.function_call:
-                    function_name = response_text.function_call.name
-                    function_args = response_text.function_call.arguments
-                    print(f"FUNCTION CALL DETECTED: {function_name} with args {function_args}")
-
-                    # Here you would implement the logic to execute the function
-                    # For example, if function_name == "water_plants", call the appropriate function
-                    parsed_args = json.loads(function_args)
-
-                    if function_name == "water_plants":
-                        result = water_plants(**parsed_args)
-
-                        followup = client.chat.completions.create(
-                            model="gpt-4-0613", ##maybe this one can be a lighter model
-                            messages=[
-                                {"role": "system", "content": indoctrination},
-                                {"role": "user", "content": command},
-                                {"role": "assistant", "function_call": {
-                                  "name": function_name,
-                                   "arguments": function_args
-                              }},
-                              {"role": "function", "name": function_name, "content": result}
-                          ],
-                          temperature=0.5,
-                          max_tokens=150
-                        )
-
-                        response_text = followup.choices[0].message.content.strip()
-                    
-                    if function_name == "turn_on_lights":
-                        result = turn_on_lights(**parsed_args)
-
-                        followup = client.chat.completions.create(
-                            model="gpt-4-0613",
-                            messages=[
-                                {"role": "system", "content": indoctrination},
-                                {"role": "user", "content": command},
-                                {"role": "assistant", "function_call": {
-                                  "name": function_name,
-                                   "arguments": function_args
-                              }},
-                              {"role": "function", "name": function_name, "content": result}
-                          ],
-                          temperature=0.5,
-                          max_tokens=150
-                        )
-
-                        response_text = followup.choices[0].message.content.strip()
-
-                    else:
-                        response_text = f"Unknown function: {function_name}"
-                else:
-                    response_text = response_text.content.strip()
-                        
-
-                #response_text = response.choices[0].message.content.strip()
-                response_text = response_text.replace("Monkey Butler:", "").strip()
-                print(f"Bot response: {response_text}")
-
-                # Add a short note to the queue so GUI can display it
-                # For instance, we store the recognized "command" or entire "response_text."
-                cmd_queue.put(("VOICE_CMD", command, response_text))
-
-                #Check to see if the model wants to call a function
-                # if response_text.get("function_call"):
-                #     function_name = response_text["function_call"]["name"]
-                #     function_args = response_text["function_call"]["arguments"]
-                #     print(f"Function call detected: {function_name} with args {function_args}")
-
-                #     # Here you would implement the logic to execute the function
-                #     # For example, if function_name == "water_plants", call the appropriate function
-
-                # Synthesize TTS via Polly (raw PCM)
-                polly_response = polly_client.synthesize_speech(
-                    VoiceId='Brian',
-                    OutputFormat='pcm',
-                    SampleRate='8000',
-                    Text=response_text,
-                    Engine='neural'
-                )
-                pcm_data = polly_response['AudioStream'].read()
-
-                # Wrap raw PCM in a WAV container
-                filename = "speech_output.wav"
-                with wave.open(filename, 'wb') as wf:
-                    wf.setnchannels(1)
-                    wf.setsampwidth(2)
-                    wf.setframerate(8000)
-                    wf.writeframesraw(pcm_data)
-
-                # Play the WAV in a separate thread
-                audio_thread = threading.Thread(target=play_audio, args=(filename,))
-                audio_thread.start()
-
+                processing_queue.put(command)
     except sr.UnknownValueError:
         print("Could not understand the audio.")
     except sr.RequestError as e:
         print(f"Speech Recognition API error: {e}")
-    except openai.OpenAIError as e:
-        print(f"OpenAI API Error: {e}")
-    except boto3.exceptions.Boto3Error as e:
-        print(f"AWS Polly Error: {e}")
     except Exception as e:
         print(f"Unexpected Error: {e}")
 
 
 # =============== START BACKGROUND LISTENING ===============
-def run_voice_recognition(cmd_queue):
+def run_voice_recognition(processing_queue):
     """
     Sets up background listening in a separate thread.
-    The 'cmd_queue' is used to pass recognized commands to the main Pygame loop.
+    The 'processing_queue' is used to pass recognized commands to the main Pygame loop.
     """
     mic = sr.Microphone()
     with mic as source:
@@ -287,14 +168,106 @@ def run_voice_recognition(cmd_queue):
         r.adjust_for_ambient_noise(source, duration=1.0)
         print("Calibrated for ambient noise. Starting background listening...")
 
-    # Provide a lambda or partial so we can pass 'cmd_queue' into the callback
+    # Provide a lambda or partial so we can pass 'processing_queue' into the callback
     def callback_wrapper(recognizer, audio_data):
-        recognition_callback(recognizer, audio_data, cmd_queue)
+        recognition_callback(recognizer, audio_data, processing_queue)
 
     # Listen in background
     stop_listening = r.listen_in_background(mic, callback_wrapper)
     print("Background listening started.")
     return stop_listening
+
+
+# Worker thread that processes commands recognized by the speech
+# callback. It performs the GPT interaction, optional function
+# execution, text-to-speech synthesis and audio playback.
+def process_commands(processing_queue, gui_queue):
+    while True:
+        command = processing_queue.get()
+        if command is None:
+            break
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4-0613",
+                messages=[
+                    {"role": "system", "content": indoctrination},
+                    {"role": "user", "content": command}
+                ],
+                functions=functions,
+                function_call="auto",
+                temperature=0.5,
+                max_tokens=150
+            )
+            response_text = response.choices[0].message
+
+            if response_text.function_call:
+                function_name = response_text.function_call.name
+                function_args = response_text.function_call.arguments
+                print(f"FUNCTION CALL DETECTED: {function_name} with args {function_args}")
+                parsed_args = json.loads(function_args)
+
+                if function_name == "water_plants":
+                    result = water_plants(**parsed_args)
+                    followup = client.chat.completions.create(
+                        model="gpt-4-0613",
+                        messages=[
+                            {"role": "system", "content": indoctrination},
+                            {"role": "user", "content": command},
+                            {"role": "assistant", "function_call": {"name": function_name, "arguments": function_args}},
+                            {"role": "function", "name": function_name, "content": result}
+                        ],
+                        temperature=0.5,
+                        max_tokens=150
+                    )
+                    response_text = followup.choices[0].message.content.strip()
+                elif function_name == "turn_on_lights":
+                    result = turn_on_lights(**parsed_args)
+                    followup = client.chat.completions.create(
+                        model="gpt-4-0613",
+                        messages=[
+                            {"role": "system", "content": indoctrination},
+                            {"role": "user", "content": command},
+                            {"role": "assistant", "function_call": {"name": function_name, "arguments": function_args}},
+                            {"role": "function", "name": function_name, "content": result}
+                        ],
+                        temperature=0.5,
+                        max_tokens=150
+                    )
+                    response_text = followup.choices[0].message.content.strip()
+                else:
+                    response_text = f"Unknown function: {function_name}"
+            else:
+                response_text = response_text.content.strip()
+
+            response_text = response_text.replace("Monkey Butler:", "").strip()
+            print(f"Bot response: {response_text}")
+
+            gui_queue.put(("VOICE_CMD", command, response_text))
+
+            polly_response = polly_client.synthesize_speech(
+                VoiceId='Brian',
+                OutputFormat='pcm',
+                SampleRate='8000',
+                Text=response_text,
+                Engine='neural'
+            )
+            pcm_data = polly_response['AudioStream'].read()
+
+            filename = "speech_output.wav"
+            with wave.open(filename, 'wb') as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(8000)
+                wf.writeframesraw(pcm_data)
+
+            audio_thread = threading.Thread(target=play_audio, args=(filename,))
+            audio_thread.start()
+        except openai.OpenAIError as e:
+            print(f"OpenAI API Error: {e}")
+        except boto3.exceptions.Boto3Error as e:
+            print(f"AWS Polly Error: {e}")
+        except Exception as e:
+            print(f"Unexpected Error: {e}")
 
 
 # =============== PYGAME INFO PANEL ===============
@@ -483,18 +456,26 @@ def run_info_panel_gui(cmd_queue):
 
 # =============== MAIN ENTRY POINT ===============
 if __name__ == "__main__":
-    # 1) Create a queue for passing voice commands -> GUI
+    # 1) Queue for GUI updates
     command_queue = queue.Queue()
+    # 2) Queue for processing recognized commands
+    processing_queue = queue.Queue()
 
-    # 2) Start background listening
-    stop_listening = run_voice_recognition(command_queue)
+    # 3) Start background listening
+    stop_listening = run_voice_recognition(processing_queue)
+
+    # 4) Start worker thread for command processing
+    worker = threading.Thread(target=process_commands, args=(processing_queue, command_queue))
+    worker.start()
 
     try:
-            # 3) Run the Pygame GUI in the main thread
-            run_info_panel_gui(command_queue)
+        # 5) Run the Pygame GUI in the main thread
+        run_info_panel_gui(command_queue)
     finally:
-        # 4) When Pygame loop ends, optionally stop the background thread
+        # 6) Shutdown background listener and worker
         if stop_listening:
             stop_listening(wait_for_stop=False)
+        processing_queue.put(None)
+        worker.join()
         audio_interface.terminate()
         print("Exiting cleanly.")
