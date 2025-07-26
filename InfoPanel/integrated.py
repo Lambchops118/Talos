@@ -472,6 +472,7 @@ if __name__ == "__main__":
         # 5) Run the Pygame GUI in the main thread
         run_info_panel_gui(command_queue)
     finally:
+        print("Got to the shutdown statement")
         # 6) Shutdown background listener and worker
         if stop_listening:
             stop_listening(wait_for_stop=False)
