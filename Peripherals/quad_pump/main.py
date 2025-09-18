@@ -1,24 +1,28 @@
-#Part of TALOS
-#Monkey Butler Device Operations System
-#Runs on the plant waterer hardware to get updates from MQTT Broker
+# Part of TALOS
+# Monkey Butler Device Operations System
+
+# Main file in raspberry pi pico root folder along with simple.py. This will listen for a "1" on
+# MQTT topics quad_waterer/{16, 17, 18, 19} and run the pump for 8 seconds when called. It will turn off the pin
+# after 8 seconds. It will also listen for a "0" to turn off the pin immediately. It will publish the pin status
+# to status/{16, 17, 18, 19} after any change. 
 
 
 import network
 import time
 import machine
-from umqtt.simple import MQTTClient
+from   umqtt.simple import MQTTClient
 
 # Configuration
-WIFI_SSID = 'Verizon_4VLXXY'
-WIFI_PASSWORD = 'artery4-fob-vim'
-MQTT_BROKER = '192.168.1.160'
-MQTT_CLIENT_ID = 'pico-w-client'
+WIFI_SSID         = 'Verizon_4VLXXY'
+WIFI_PASSWORD     = 'artery4-fob-vim'
+MQTT_BROKER       = '192.168.1.160'
+MQTT_CLIENT_ID    = 'pico-w-client'
 MQTT_TOPIC_PREFIX = b'quad_pump/'  # example:  waterer_pump/4  (1-4) 
-CONTROL_TOPICS = [MQTT_TOPIC_PREFIX + bytes(str(pin), 'utf-8') for pin in [16, 17, 18, 19]]
+CONTROL_TOPICS    = [MQTT_TOPIC_PREFIX + bytes(str(pin), 'utf-8') for pin in [16, 17, 18, 19]]
 
 # Pin setup
-PIN_NUMBERS = [16, 17, 18, 19]
-PINS = {pin_num: machine.Pin(pin_num, machine.Pin.OUT) for pin_num in PIN_NUMBERS}
+PIN_NUMBERS       = [16, 17, 18, 19]
+PINS              = {pin_num: machine.Pin(pin_num, machine.Pin.OUT) for pin_num in PIN_NUMBERS}
 
 print('started')
 
@@ -37,8 +41,6 @@ def connect_wifi():
             print("Sleeping...")
             time.sleep(0.5)
     print('Connected to Wi-Fi:', wlan.ifconfig())
-    #onboard_led = Pin(25, pin.OUT)
-    #onboard_led.value(1)
 
 # MQTT message callback
 def mqtt_callback(topic, msg):
@@ -48,6 +50,8 @@ def mqtt_callback(topic, msg):
             pin = PINS[pin_number]
             if msg == b'1':
                 pin.value(1)
+                time.sleep(8)   # RUN PUMP FOR 8 SECONDS
+                pin.value(0)
             elif msg == b'0':
                 pin.value(0)
             else:
@@ -65,6 +69,7 @@ connect_wifi()
 
 # Setup MQTT
 client = MQTTClient(MQTT_CLIENT_ID, MQTT_BROKER)
+
 print("MQTT_CLIENT_ID: " + MQTT_CLIENT_ID)
 print("MQTT_BROKER: " + MQTT_BROKER)
 

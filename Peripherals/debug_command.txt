@@ -1,0 +1,9 @@
+Use this command in terminal to send a test signal to the pump.
+
+1 = on
+0 = off
+
+pump pin #s: 16, 17, 18, 19
+
+
+mosquitto_pub -h 192.168.1.160 -p 1883 -t quad_pump/16 -m 1

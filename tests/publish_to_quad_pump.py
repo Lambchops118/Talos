@@ -13,7 +13,10 @@ def publish_pump_state(broker_ip, message):
 
     client = mqtt.Client()
     client.connect(broker_ip, 1883, 60)
-    client.publish("waterer_pump/2", message)
+    client.publish("quad_pump/19", message)
     client.disconnect()
 
-    publish_pump_state("192.168.1.100", b'1')
+publish_pump_state("192.168.1.160", b'1')
+print("done")
+
+

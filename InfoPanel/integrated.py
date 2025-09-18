@@ -1,3 +1,10 @@
+# Part of TALOS
+# Monkey Butler Device Operations System
+
+# This is the main file for the "Info Panel" display application. Everything starts from here.
+
+
+
 import sys
 import time
 from datetime import datetime, date
@@ -9,6 +16,7 @@ import math
 import json
 import contextlib
 from concurrent.futures import ThreadPoolExecutor
+import paho.mqtt.client as mqtt
 
 # === PYGAME & RELATED IMPORTS ===
 import pygame
@@ -102,6 +110,19 @@ functions = [
 
 def water_plants(pot_number):
     print("THIS IS THE PLACEHOLDER FOR WATERING PLANTS" + str(pot_number))
+
+    BROKER = "192.168.1.160"
+    PORT = 1883
+    TOPIC_PREFIX = "quad_pump"
+
+    topic = f"{TOPIC_PREFIX}/19"
+    message = "1"
+
+    client = mqtt.Client()
+    client.connect(BROKER, PORT, keepalive=60)
+    client.publish(topic, message)
+    client.disconnect()
+
     return f"Watering pot number {pot_number}."
 
 def turn_on_lights(room):
