@@ -36,7 +36,6 @@ import MBVectorArt2 as MBVectorArt
 import gears2 as gears
 
 # =============== PHYSICAL SYSTEMS IMPORTS ===============
-import water_plants
 
 
 # =============== GLOBAL CONFIG & API KEYS ===============
