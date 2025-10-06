@@ -153,7 +153,7 @@ def load_obj_wire(
 #CODE TO USE IT IN PANEL:
 #########################
 
-# # Once, when loading assets:
+# Once, when loading assets:
 # character = load_obj_wire(
 #     "assets/robot_lowpoly.obj",
 #     keep_edges="feature",       # try "boundary" or "all"

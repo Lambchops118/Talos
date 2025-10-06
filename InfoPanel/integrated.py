@@ -22,7 +22,7 @@ import paho.mqtt.client as mqtt
 import pygame
 
 # === 3D VECTOR ART IMPORTS ===
-#import moving_vector_portrait as vec3d
+import moving_vector_portrait as vec3d
 import obj_wireframe_loader as objl
 
 # === SPEECH RECOGNITION IMPORTS ===
@@ -462,7 +462,7 @@ def run_info_panel_gui(cmd_queue):
     clock = pygame.time.Clock()
 
     #Code for 3d wireframe panel
-    panel_rect = (screen_width - 360, 20, 340, 260) # x, y, w, h
+    panel_rect = (screen_width - 900 , 300, 340, 260) # x, y, w, h
     renderer = vec3d.WireframeRenderer(panel_rect, fov=55, near=0.1, far=50) 
     mesh = vec3d.cube_mesh(size=0.7) # Create a cube mesh
     angle = 180.0 # Rotation angle for animation
@@ -529,14 +529,35 @@ def run_info_panel_gui(cmd_queue):
         # Draw the 3d animated portrait in a separate panel on the main screen
         angle += 0.012
         # --- Draw the wireframe character/mesh in the panel ---
+        # renderer.draw(
+        #     screen,
+        #     mesh,
+        #     model_pos=(0.0, 0.1, 3.0),        # move the model “into” the screen
+        #     model_rot=(angle*1.3, angle, 0),  # animate
+        #     model_scale=1.0,
+        #     camera_pos=(0.0, 0.0, 0.0),
+        #     camera_target=(0.0, 0.0, 1.0),
+        #     zsort=True
+        # )
+
+        #try using the blender method:
+        # # Once, when loading assets:
+        character = objl.load_obj_wire(
+            "InfoPanel/test_character.obj",
+            keep_edges="feature",       # try "boundary" or "all"
+            feature_angle_deg=50.00,     # larger -> fewer, sharper edges kept
+            target_radius=0.8
+        )
+
+        # Each frame inside your UI draw:
         renderer.draw(
             screen,
-            mesh,
-            model_pos=(0.0, 0.1, 3.0),        # move the model “into” the screen
-            model_rot=(angle*1.3, angle, 0),  # animate
-            model_scale=1.0,
-            camera_pos=(0.0, 0.0, 0.0),
-            camera_target=(0.0, 0.0, 1.0),
+            character, # the mesh loaded from the OBJ file
+            model_pos=(0.0, -0.1, 3.2), # move the model “into” the screen
+            model_rot=(0, angle*0.9, 0),   # animate however you like
+            model_scale=3.5,
+            camera_pos=(0, 0, 0),
+            camera_target=(0, 0, 1), 
             zsort=True
         )
 
