@@ -20,7 +20,10 @@ import paho.mqtt.client as mqtt
 
 # === PYGAME & RELATED IMPORTS ===
 import pygame
-import moving_vector_portrait as vec3d
+
+# === 3D VECTOR ART IMPORTS ===
+#import moving_vector_portrait as vec3d
+import obj_wireframe_loader as objl
 
 # === SPEECH RECOGNITION IMPORTS ===
 import speech_recognition as sr
@@ -459,10 +462,10 @@ def run_info_panel_gui(cmd_queue):
     clock = pygame.time.Clock()
 
     #Code for 3d wireframe panel
-    panel_rect = (screen_width - 360, 20, 340, 260)
-    renderer = vec3d.WireframeRenderer(panel_rect, fov=55, near=0.1, far=50.0)
-    mesh = vec3d.cube_mesh(size=0.7)
-    angle = 0.0
+    panel_rect = (screen_width - 360, 20, 340, 260) # x, y, w, h
+    renderer = vec3d.WireframeRenderer(panel_rect, fov=55, near=0.1, far=50) 
+    mesh = vec3d.cube_mesh(size=0.7) # Create a cube mesh
+    angle = 180.0 # Rotation angle for animation
 
 
 
@@ -525,11 +528,6 @@ def run_info_panel_gui(cmd_queue):
 
         # Draw the 3d animated portrait in a separate panel on the main screen
         angle += 0.012
-
-        # --- Your existing UI drawing here ---
-        #screen.fill((18,18,20))
-        # ... draw the rest of your app/panel controls ...
-
         # --- Draw the wireframe character/mesh in the panel ---
         renderer.draw(
             screen,

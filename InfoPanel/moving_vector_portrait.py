@@ -73,8 +73,8 @@ class WireframeRenderer:
         self.fov = fov
         self.near = near
         self.far = far
-        self.bg = (8, 10, 16)
-        self.fg = (235, 235, 255)
+        self.bg = (0, 0, 0) #background color
+        self.fg = (0, 255, 0)  #foreground (line) color
         self.line_width = 2
 
     def _viewport(self, w, h):
@@ -199,4 +199,5 @@ class WireframeRenderer:
             draw_line(panel, col, a2, b2, lw)
 
         # Optional: draw panel border to fit UI
-        pygame.draw.rect(surface, (40, 40, 60), self.panel_rect, 1)
+        #pygame.draw.rect(surface, (40, 40, 60), self.panel_rect, 1)
+        pygame.draw.rect(surface, (0, 255, 0), self.panel_rect, 1)
