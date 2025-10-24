@@ -6,9 +6,8 @@
 # after 8 seconds. It will also listen for a "0" to turn off the pin immediately. It will publish the pin status
 # to status/{16, 17, 18, 19} after any change. 
 
-
-import network
 import time
+import network
 import machine
 from   umqtt.simple import MQTTClient
 
