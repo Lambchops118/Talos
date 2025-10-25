@@ -73,8 +73,8 @@ class WireframeRenderer:
         self.fov = fov
         self.near = near
         self.far = far
-        self.bg = (0, 0, 0) #background color
-        self.fg = (0, 255, 0)  #foreground (line) color
+        self.bg = (0, 15, 0) #background color
+        self.fg = (0, 255, 0)  #foreground (object) color
         self.line_width = 2
 
     def _viewport(self, w, h):
@@ -88,7 +88,7 @@ class WireframeRenderer:
              zsort=False):
         # Panel setup
         px, py, pw, ph = self.panel_rect
-        panel = surface.subsurface(self.panel_rect)
+        panel = surface.subsurface(self.panel_rect) # get subsurface for panel
         panel.fill(self.bg)
 
         aspect = pw / ph
@@ -200,4 +200,4 @@ class WireframeRenderer:
 
         # Optional: draw panel border to fit UI
         #pygame.draw.rect(surface, (40, 40, 60), self.panel_rect, 1)
-        pygame.draw.rect(surface, (0, 255, 0), self.panel_rect, 1)
+        pygame.draw.rect(surface, (0, 255, 0), self.panel_rect, 1) #green border

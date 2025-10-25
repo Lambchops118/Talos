@@ -378,8 +378,8 @@ def draw_monkey_butler_head(screen, base_x, base_y, scale_x, scale_y, color_):
     MBVectorArt.draw_monkey_butler_head(screen, base_x, base_y, scale_x, scale_y, color_)
 
 def draw_scanlines(screen, screen_width, screen_height):
-    for y in range(0, screen_width, 4):
-        pygame.draw.line(screen, (0, 0, 0), (0, y), (8000, y), 2)
+    for y in range(0, screen_width, 2): # every 4 pixels
+        pygame.draw.line(screen, (0, 0, 0), (0, y), (8000, y), 1) # black line, 2 pixels thick
 
 def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
     # Example time & date
@@ -542,7 +542,7 @@ def run_info_panel_gui(cmd_queue):
         #try using the blender method:
         # # Once, when loading assets:
         character = objl.load_obj_wire(
-            "InfoPanel/test_character.obj",
+            "InfoPanel/butlerv3.obj",
             keep_edges="feature",       # try "boundary" or "all"
             feature_angle_deg=50.00,     # larger -> fewer, sharper edges kept
             target_radius=0.8
