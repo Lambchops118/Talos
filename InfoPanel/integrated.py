@@ -26,10 +26,7 @@ from concurrent.futures import ThreadPoolExecutor
 import gears2 as gears
 import MBVectorArt2 as MBVectorArt
 
-# =============== PHYSICAL SYSTEMS IMPORTS ===============
-
-
-# =============== GLOBAL CONFIG & API KEYS ===============
+# API Keys (Change this eventually)
 openai.api_key       = "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"
 aws_access_key       = 'AKIAYASFKTEUSCOD7RT5'
 aws_secret_key       = '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'
@@ -37,9 +34,9 @@ open_weather_api_key = "c5bbe0c6b2d7ab5f9ae92a9441d47253"
 
 polly_client = boto3.client(
     'polly',
-    aws_access_key_id=aws_access_key,
-    aws_secret_access_key=aws_secret_key,
-    region_name='us-west-2'
+    aws_access_key_id     = aws_access_key,
+    aws_secret_access_key = aws_secret_key,
+    region_name           = 'us-west-2'
 )
 
 # GPT config
@@ -53,7 +50,7 @@ He is not a human and does not have feelings. He is a sophisticated AI created b
 He is capable of performing tasks in the physical world through functions connected to the systems."""
 
 # SpeechRecognition setup
-r = sr.Recognizer()
+r         = sr.Recognizer()
 WAKE_WORD = "butler"
 
 #Create a global PyAudio instance for audio playback, instead of initializing it in the function
@@ -101,12 +98,11 @@ functions = [
 def water_plants(pot_number):
     print("THIS IS THE PLACEHOLDER FOR WATERING PLANTS" + str(pot_number))
 
-    BROKER = "192.168.1.160"
-    PORT = 1883
-    TOPIC_PREFIX = "quad_pump"
-
-    topic = f"{TOPIC_PREFIX}/19"
-    message = "1"
+    BROKER        = "192.168.1.160"
+    PORT          = 1883
+    TOPIC_PREFIX  = "quad_pump"
+    topic         = f"{TOPIC_PREFIX}/19"
+    message       = "1"
 
     client = mqtt.Client()
     client.connect(BROKER, PORT, keepalive=60)
@@ -131,14 +127,15 @@ def play_audio(filename):
         with wave.open(filename, 'rb') as wf:
             print("Opened WAV file successfully.")
             stream = audio_interface.open(
-                format=audio_interface.get_format_from_width(wf.getsampwidth()),
-                channels=wf.getnchannels(),
-                rate=wf.getframerate(),
-                output=True
+                format   = audio_interface.get_format_from_width(wf.getsampwidth()),
+                channels = wf.getnchannels(),
+                rate     = wf.getframerate(),
+                output   = True
             )
             print("Audio stream opened successfully.")
             data = wf.readframes(chunk)
             print("Reading frames from WAV file...")
+
             while data:
                 #print("Writing data to stream...")
                 stream.write(data)
@@ -227,10 +224,10 @@ def handle_command(command, gui_queue):
                 {"role": "system", "content": indoctrination},
                 {"role": "user", "content": command}
             ],
-            functions=functions,
-            function_call="auto",
-            temperature=0.5,
-            max_tokens=150
+            functions     = functions,
+            function_call = "auto",
+            temperature   = 0.5,
+            max_tokens    = 150
         )
         print("OpenAI chat completion created successfully.")
         response_text = response.choices[0].message
@@ -241,10 +238,10 @@ def handle_command(command, gui_queue):
             function_name = response_text.function_call.name
             function_args = response_text.function_call.arguments
             print(f"FUNCTION CALL DETECTED: {function_name} with args {function_args}")
-            parsed_args = json.loads(function_args)
+            parsed_args   = json.loads(function_args)
 
             if function_name == "water_plants":
-                result = water_plants(**parsed_args)
+                result   = water_plants(**parsed_args)
                 followup = client.chat.completions.create(
                     model="gpt-4-0613",
                     messages=[
@@ -253,12 +250,12 @@ def handle_command(command, gui_queue):
                         {"role": "assistant", "function_call": {"name": function_name, "arguments": function_args}},
                         {"role": "function", "name": function_name, "content": result}
                     ],
-                    temperature=0.5,
-                    max_tokens=150
+                    temperature = 0.5,
+                    max_tokens  = 150
                 )
                 response_text = followup.choices[0].message.content.strip()
             elif function_name == "turn_on_lights":
-                result = turn_on_lights(**parsed_args)
+                result   = turn_on_lights(**parsed_args)
                 followup = client.chat.completions.create(
                     model="gpt-4-0613",
                     messages=[
@@ -267,8 +264,8 @@ def handle_command(command, gui_queue):
                         {"role": "assistant", "function_call": {"name": function_name, "arguments": function_args}},
                         {"role": "function", "name": function_name, "content": result}
                     ],
-                    temperature=0.5,
-                    max_tokens=150
+                    temperature = 0.5,
+                    max_tokens  = 150
                 )
                 response_text = followup.choices[0].message.content.strip()
                 print(f"Function '{function_name}' executed with result: {result}")
@@ -286,11 +283,11 @@ def handle_command(command, gui_queue):
         print("Synthesizing speech with AWS Polly...")
         with contextlib.closing(
             polly_client.synthesize_speech(
-                VoiceId='Brian',
-                OutputFormat='pcm',
-                SampleRate='16000',
-                Text=response_text,
-                Engine='neural'
+                VoiceId      = 'Brian',
+                OutputFormat = 'pcm',
+                SampleRate   = '16000',
+                Text         = response_text,
+                Engine       = 'neural'
             ).get('AudioStream')
         ) as stream:
             pcm_data = stream.read()
@@ -336,14 +333,14 @@ def process_commands(processing_queue, gui_queue):
 
 
 # =============== PYGAME INFO PANEL ===============
-color = (0, 255, 0)
+color         = (0, 255, 0)
 color_offline = (100, 100, 100)
-red = (255, 0, 0)
+red           = (255, 0, 0)
 
 RESOLUTIONS = {
-    "QHD": (2560, 1440),
-    "UHD": (3840, 2160),
-    "1080P": (1920, 1080),
+    "QHD"   : (2560, 1440),
+    "UHD"   : (3840, 2160),
+    "1080P" : (1920, 1080),
 }
 
 def parse_base_resolution():
@@ -372,7 +369,7 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
     # Example time & date
     time_readable = time.strftime("%H:%M:%S")
     date_readable = time.strftime("%Y-%m-%d")
-    weekday = time.strftime("%A")
+    weekday       = time.strftime("%A")
 
     is_discord_online = True
     is_server_online = False
@@ -381,11 +378,11 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
 
     def draw_text_centered(text, bx, by, color_, size=30):
         font_scaled = pygame.font.Font(font_path, int(size*((scale_x+scale_y)/2)))
-        surface = font_scaled.render(str(text), True, color_)
-        text_width = surface.get_width()
+        surface     = font_scaled.render(str(text), True, color_)
+        text_width  = surface.get_width()
         text_height = surface.get_height()
-        draw_x = int(bx*scale_x - text_width/2)
-        draw_y = int(by*scale_y - text_height/2)
+        draw_x      = int(bx*scale_x - text_width/2)
+        draw_y      = int(by*scale_y - text_height/2)
         screen.blit(surface, (draw_x, draw_y))
 
     # Rectangle
@@ -407,10 +404,10 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
     )
 
     # Text
-    draw_text_centered(time_readable, base_w/2, base_h/2.3, color, 35)
-    draw_text_centered(date_readable, base_w/2, base_h/2.2, color, 35)
-    draw_text_centered(weekday,       base_w/2, base_h/2.1, color, 35)
-    draw_text_centered("Monkey Butler", base_w/2, base_h/14, color, 80)
+    draw_text_centered(time_readable,   base_w/2, base_h/2.3, color, 35)
+    draw_text_centered(date_readable,   base_w/2, base_h/2.2, color, 35)
+    draw_text_centered(weekday,         base_w/2, base_h/2.1, color, 35)
+    draw_text_centered("Monkey Butler", base_w/2, base_h/14,  color, 80)
 
     # Gears
     if is_server_online:
@@ -452,14 +449,14 @@ def run_info_panel_gui(cmd_queue):
 
     # We'll keep track of the "last voice command" and "last GPT response"
     # so we can display them in the GUI.
-    last_command = ""
+    last_command  = ""
     last_response = ""
 
     # A small helper to draw text on screen (top-left)
     font_path = r"C:\Users\Liam\Desktop\Talos\Talos\InfoPanel\VT323-Regular.ttf"
     def draw_text_topleft(txt, x, y, color_=(255,255,255), size=30):
         font_scaled = pygame.font.Font(font_path, int(size*((scale_x+scale_y)/2)))
-        surface = font_scaled.render(txt, True, color_)
+        surface     = font_scaled.render(txt, True, color_)
         screen.blit(surface, (int(x*scale_x), int(y*scale_y)))
 
     last_motd = None
@@ -482,7 +479,7 @@ def run_info_panel_gui(cmd_queue):
             else:
                 if msg[0] == "VOICE_CMD":
                     # msg structure: ("VOICE_CMD", recognized_command, gpt_response_text)
-                    last_command = msg[1]
+                    last_command  = msg[1]
                     last_response = msg[2]
 
         # --- RENDER THE FRAME ---
