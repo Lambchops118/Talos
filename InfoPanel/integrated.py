@@ -3,6 +3,10 @@
 
 # This is the main file for the "Info Panel" display application. Everything starts from here.
 
+#BUGS AND TO DO
+ # - Make sure multiple commands in quick succession are handled properly.
+ # - See if openai api call code can be cleaned up further.
+
 # Python Libs
 import os
 import sys
@@ -14,7 +18,7 @@ import boto3
 import queue
 import openai
 import pygame
-import pyuadio
+import pyaudio
 import threading
 import contextlib
 import speech_recognition as sr
@@ -117,40 +121,27 @@ def turn_on_lights(room):
 
 
 # =============== AUDIO PLAYBACK ===============
-def play_audio(filename):
-    """
-    Plays a WAV file using PyAudio, then removes the file.
-    """
-    print("Trying to Play Audio...")
+def play_audio(filename): #Plays the WAV from AWS Polly then deletes the file.
     try:
-        chunk = 1024
+        chunk = 1024 
         with wave.open(filename, 'rb') as wf:
-            print("Opened WAV file successfully.")
             stream = audio_interface.open(
-                format   = audio_interface.get_format_from_width(wf.getsampwidth()),
+                format   = audio_interface.get_format_from_width(wf.getsampwidth()), #See if this is causing rate error
                 channels = wf.getnchannels(),
                 rate     = wf.getframerate(),
                 output   = True
             )
-            print("Audio stream opened successfully.")
             data = wf.readframes(chunk)
-            print("Reading frames from WAV file...")
-
             while data:
-                #print("Writing data to stream...")
                 stream.write(data)
-                #print("Data written to stream.")
                 data = wf.readframes(chunk)
-                #print("Reading next chunk of data...")
             stream.stop_stream()
-            print("Stopping stream...")
             stream.close()
-            print("Stream closed.")
 
         # Slight pause to ensure file is no longer in use
         time.sleep(0.2)
         os.remove(filename)
-        print(f"ln 145 Removed file: {filename}")
+        print(f"ln 143 Removed file: {filename}")
 
     except Exception as e:
         print(f"Error in play_audio: {e}")
@@ -180,71 +171,51 @@ def recognition_callback(recognizer, audio_data, processing_queue):
 
 
 # =============== START BACKGROUND LISTENING ===============
-def run_voice_recognition(processing_queue):
-    """
-    Sets up background listening in a separate thread.
-    The 'processing_queue' is used to pass recognized commands to the main Pygame loop.
-    """
-    print("Setting up voice recognition...")
+def run_voice_recognition(processing_queue): #Sets up background listening in a new thread. processing_queue is passed in.
     mic = sr.Microphone()
     print("Microphone initialized.")
-    #print(f"!!!!!!!!!!!!!!Energy threshold starting: {r.energy_threshold}!!!!!!!!!!!!!!!")
     with mic as source:
-        # Adjust for ambient noise
-        r.adjust_for_ambient_noise(source, duration=0.5)
-        #print(f"!!!!!!!!!!!!!!Energy threshold: {r.energy_threshold}!!!!!!!!!!!!!!!")
+        r.adjust_for_ambient_noise(source, duration=0.5) # adjust for ambient noise for 0.5 seconds
         r.dynamic_energy_threshold = False
         # Optionally tune:
-        r.energy_threshold = 300  # adjust empirically
-        print("Calibrated for ambient noise. Starting background listening...")
+        r.energy_threshold = 300  # adjust empirically. At this point it has calibrated for ambient noise.
+        print("Adjusted for ambient noise.")
 
-    # Provide a lambda or partial so we can pass 'processing_queue' into the callback
-    def callback_wrapper(recognizer, audio_data):
-        print("poop")
+    def callback_wrapper(recognizer, audio_data): #Provide a lambda so we can pass processing_queue into the callback
         recognition_callback(recognizer, audio_data, processing_queue)
-        print("pee")
 
-    # Listen in background
-    print("george floyd")
-    stop_listening = r.listen_in_background(mic, callback_wrapper)
+    stop_listening = r.listen_in_background(mic, callback_wrapper) #Listen in the background
     print("Background listening started.")
     return stop_listening
 
-
-# Worker thread that processes commands recognized by the speech
-# callback. It performs the GPT interaction, optional function
-# execution, text-to-speech synthesis and audio playback.
-def handle_command(command, gui_queue):
-    print(f"Handling command: {command}")
+def handle_command(command, gui_queue): # Worker thread that processes commands recognized by the speech callback. Does Gpt interaction, function exec, TTS synthesis, and playback.
+    print(f"Handling command: {command}") # Log the command being handled
     try:
         print("Creating OpenAI chat completion...")
         response = client.chat.completions.create(
-            model="gpt-4-0613",
-            messages=[
-                {"role": "system", "content": indoctrination},
-                {"role": "user", "content": command}
+            model    = "gpt-4-0613", # Using function-calling capable model
+            messages = [
+                {"role": "system", "content": indoctrination}, # System prompt
+                {"role": "user",   "content": command}         # User command
             ],
-            functions     = functions,
-            function_call = "auto",
-            temperature   = 0.5,
-            max_tokens    = 150
+            functions     = functions, # Function definitions
+            function_call = "auto",    # Auto-detect if function call is needed
+            temperature   = 0.5,       # Temperature for response variability
+            max_tokens    = 150        # Max tokens in response
         )
-        print("OpenAI chat completion created successfully.")
-        response_text = response.choices[0].message
-        print("Response from OpenAI received.")
+        response_text = response.choices[0].message 
 
-        if response_text.function_call:
-            print("Function call detected in response.")
+        if response_text.function_call: # Check if its a function call
             function_name = response_text.function_call.name
             function_args = response_text.function_call.arguments
-            print(f"FUNCTION CALL DETECTED: {function_name} with args {function_args}")
+            print(f"FUNCTION CALL DETECTED: {function_name} with args {function_args}") # Log function call details
             parsed_args   = json.loads(function_args)
 
             if function_name == "water_plants":
                 result   = water_plants(**parsed_args)
                 followup = client.chat.completions.create(
-                    model="gpt-4-0613",
-                    messages=[
+                    model    = "gpt-4-0613",
+                    messages = [
                         {"role": "system", "content": indoctrination},
                         {"role": "user", "content": command},
                         {"role": "assistant", "function_call": {"name": function_name, "arguments": function_args}},
@@ -254,6 +225,7 @@ def handle_command(command, gui_queue):
                     max_tokens  = 150
                 )
                 response_text = followup.choices[0].message.content.strip()
+
             elif function_name == "turn_on_lights":
                 result   = turn_on_lights(**parsed_args)
                 followup = client.chat.completions.create(
@@ -269,19 +241,18 @@ def handle_command(command, gui_queue):
                 )
                 response_text = followup.choices[0].message.content.strip()
                 print(f"Function '{function_name}' executed with result: {result}")
+
             else:
                 response_text = f"Unknown function: {function_name}"
         else:
             response_text = response_text.content.strip()
 
-        response_text = response_text.replace("Monkey Butler:", "").strip()
+        response_text = response_text.replace("Monkey Butler:", "").strip() # There is probably a much better way to do this.
         print(f"Bot response: {response_text}")
 
-        gui_queue.put(("VOICE_CMD", command, response_text))
-        print("Command added to GUI queue.")
+        gui_queue.put(("VOICE_CMD", command, response_text)) # Send to GUI queue
 
-        print("Synthesizing speech with AWS Polly...")
-        with contextlib.closing(
+        with contextlib.closing( #Synthesize speech with AWS Polly
             polly_client.synthesize_speech(
                 VoiceId      = 'Brian',
                 OutputFormat = 'pcm',
@@ -314,22 +285,14 @@ def handle_command(command, gui_queue):
         print(f"Unexpected Error: {e}")
 
 
-def process_commands(processing_queue, gui_queue):
-    """Continuously read commands from ``processing_queue`` and submit them
-    to a thread pool so multiple commands can be handled concurrently."""
-    print("Starting command processing worker...")
-    with ThreadPoolExecutor() as executor:
-        print("Worker thread started. Waiting for commands...")
+def process_commands(processing_queue, gui_queue): #Continuously read commands from 'processing_queue' and submit them to a thread pool so multiple commands can be handled concurrently.
+    with ThreadPoolExecutor() as executor: # Thread pool for handling commands
         while True:
-            print("Waiting for command in processing queue...")
-            command = processing_queue.get()
-            print("JEWS!!!!")
+            command = processing_queue.get() # Try to get a command from the queue
             if command is None:
-                print("Received shutdown signal. Exiting command processing.")
-                break
-            print("peepee poopoo")
-            executor.submit(handle_command, command, gui_queue)
-            print("eeeeeeeeeeee")
+                break # Exit signal
+            executor.submit(handle_command, command, gui_queue) # Submit command to thread pool
+
 
 
 # =============== PYGAME INFO PANEL ===============
@@ -422,12 +385,9 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
     else:
         gear_place(screen, 0, color_offline, 350, 125, scale_x, scale_y)
 
-def run_info_panel_gui(cmd_queue):
+def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for new commands to display.
     print("Starting Pygame GUI for Info Panel...")
-    """
-    The main Pygame loop. We poll the 'cmd_queue' each frame to see if
-    there are new commands from the voice system, and we display them.
-    """
+
     pygame.init()
     info = pygame.display.Info()
 
@@ -453,7 +413,8 @@ def run_info_panel_gui(cmd_queue):
     last_response = ""
 
     # A small helper to draw text on screen (top-left)
-    font_path = r"C:\Users\Liam\Desktop\Talos\Talos\InfoPanel\VT323-Regular.ttf"
+    # This can be improved. Why do we need a function specifically for top left?
+    font_path = r"C:\Users\Liam\Desktop\Talos\Talos\InfoPanel\VT323-Regular.ttf" 
     def draw_text_topleft(txt, x, y, color_=(255,255,255), size=30):
         font_scaled = pygame.font.Font(font_path, int(size*((scale_x+scale_y)/2)))
         surface     = font_scaled.render(txt, True, color_)
@@ -496,7 +457,7 @@ def run_info_panel_gui(cmd_queue):
 
         # Draw the "last voice command" and "last GPT response"
         # near the top-left for demonstration
-        draw_text_topleft(f"Last command: {last_command}", 50, 1300, (255, 255, 0), 36)
+        draw_text_topleft(f"Last command:  {last_command}",  50, 1300, (255, 255, 0), 36)
         draw_text_topleft(f"Last response: {last_response}", 50, 1350, (255, 255, 0), 36)
 
         pygame.display.flip()
@@ -504,13 +465,10 @@ def run_info_panel_gui(cmd_queue):
         circle_time += 1
 
         # Run at a certain time every day
+        # This should probably be moved to its own thread later.
         now = datetime.now()
         if now.hour == 7 and now.minute == 30 and now.second == 0 and last_motd != date.today():
             print("THIS IS THE TASK RUNNING DAILY")
-
-            
-
-        
             last_motd = date.today()           
 
     pygame.quit()
@@ -519,34 +477,20 @@ def run_info_panel_gui(cmd_queue):
 
 # =============== MAIN ENTRY POINT ===============
 if __name__ == "__main__":
-    print("Starting Talos Info Panel...")
-    # 1) Queue for GUI updates
-    print("Creating command queue...")
-    command_queue = queue.Queue()
-    # 2) Queue for processing recognized commands
-    print("Creating processing queue...")
-    processing_queue = queue.Queue()
+    gui_queue    = queue.Queue() # Queue for GUI Updates                    --- this is the queue to show text on the GUI
+    processing_queue = queue.Queue() # Queue for processing recognized commands --- This is the queue to process the commands
 
-    # 3) Start background listening
-    print("Starting background voice recognition...")
-    stop_listening = run_voice_recognition(processing_queue)
+    stop_listening   = run_voice_recognition(processing_queue) # Start background listening
+    command_worker   = threading.Thread(target=process_commands, args=(processing_queue, gui_queue)) # Start worker for command processing
 
-    # 4) Start worker thread for command processing
-    print("Starting command processing worker...")
-    worker = threading.Thread(target=process_commands, args=(processing_queue, command_queue))
-    worker.start()
-    print("Command processing worker started.")
+    command_worker.start()
 
     try:
-        # 5) Run the Pygame GUI in the main thread
-        print("Running Pygame GUI...")
-        run_info_panel_gui(command_queue)
+        run_info_panel_gui(gui_queue) # Run pygame GUI in main thread
     finally:
-        print("Got to the shutdown statement")
-        # 6) Shutdown background listener and worker
-        if stop_listening:
+        if stop_listening: # Shut down background listener and command worker
             stop_listening(wait_for_stop=False)
         processing_queue.put(None)
-        worker.join()
+        command_worker.join()
         audio_interface.terminate()
         print("Exiting cleanly.")
