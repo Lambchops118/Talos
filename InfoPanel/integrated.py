@@ -17,6 +17,7 @@ import json
 import contextlib
 from concurrent.futures import ThreadPoolExecutor
 import paho.mqtt.client as mqtt
+from uuid import uuid4
 
 # === PYGAME & RELATED IMPORTS ===
 import pygame
@@ -168,6 +169,15 @@ def play_audio(filename):
         print(f"Error in play_audio: {e}")
 
 
+#chatgpt reccomendation on how to serialize audio
+audio_playback_queue = queue.Queue()
+def audio_player():
+    while True:
+        fn = audio_playback_queue.get()
+        if fn is None:
+            break
+        play_audio(fn)
+
 # =============== RECOGNITION CALLBACK ===============
 def recognition_callback(recognizer, audio_data, processing_queue):
     """Background callback when speech is detected. It extracts the command
@@ -195,7 +205,7 @@ def recognition_callback(recognizer, audio_data, processing_queue):
 def run_voice_recognition(processing_queue):
     """
     Sets up background listening in a separate thread.
-    The 'processing_queue' is used to pass recognized commands to the main Pygame loop.
+    The 'processing_queue' is used to pass recognized commands to the worker thread.
     """
     print("Setting up voice recognition...")
     mic = sr.Microphone()
@@ -305,7 +315,22 @@ def handle_command(command, gui_queue):
             pcm_data = stream.read()
             print("Speech synthesized successfully.")
 
-        filename = "speech_output.wav"
+        # filename = f"speech_output_{uuid4().hex}.wav"
+        # with wave.open(filename, 'wb') as wf:
+        #     print("Writing PCM data to WAV file...")
+        #     wf.setnchannels(1)
+        #     wf.setsampwidth(2)
+        #     wf.setframerate(16000)
+        #     wf.writeframesraw(pcm_data)
+        #     print(f"WAV file '{filename}' created successfully.")
+
+        # audio_thread = threading.Thread(target=play_audio, args=(filename,))
+        # print("Starting audio playback thread...")
+        # audio_thread.start()
+        # print("Audio playback thread started.")
+
+        #Chatgpt serialization code (NEW)
+        filename = f"speech_output_{uuid4().hex}.wav"
         with wave.open(filename, 'wb') as wf:
             print("Writing PCM data to WAV file...")
             wf.setnchannels(1)
@@ -314,10 +339,9 @@ def handle_command(command, gui_queue):
             wf.writeframesraw(pcm_data)
             print(f"WAV file '{filename}' created successfully.")
 
-        audio_thread = threading.Thread(target=play_audio, args=(filename,))
-        print("Starting audio playback thread...")
-        audio_thread.start()
-        print("Audio playback thread started.")
+        audio_playback_queue.put(filename)
+        #end chatgpt code
+
     except openai.OpenAIError as e:
         print(f"OpenAI API Error: {e}")
     except boto3.exceptions.Boto3Error as e:
@@ -549,6 +573,10 @@ if __name__ == "__main__":
     worker.start()
     print("Command processing worker started.")
 
+    #chatgpt serialized audio
+    audio_worker = threading.Thread(target=audio_player, daemon=True)
+    audio_worker.start()
+
     try:
         # 5) Run the Pygame GUI in the main thread
         print("Running Pygame GUI...")
@@ -560,5 +588,12 @@ if __name__ == "__main__":
             stop_listening(wait_for_stop=False)
         processing_queue.put(None)
         worker.join()
+        #audio_interface.terminate()
+
+        audio_playback_queue.join()
+        audio_playback_queue.put(None)
+        audio_worker.join()
+
         audio_interface.terminate()
+
         print("Exiting cleanly.")
