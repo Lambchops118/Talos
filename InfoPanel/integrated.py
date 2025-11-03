@@ -3,45 +3,36 @@
 
 # This is the main file for the "Info Panel" display application. Everything starts from here.
 
-
-
-import sys
-import time
-from datetime import datetime, date
-import queue
-import threading
+# Python Libs
 import os
+import sys
 import wave
 import math
 import json
-import contextlib
-from concurrent.futures import ThreadPoolExecutor
-import paho.mqtt.client as mqtt
-
-# === PYGAME & RELATED IMPORTS ===
-import pygame
-
-# === SPEECH RECOGNITION IMPORTS ===
-import speech_recognition as sr
-
-# === OPENAI & AWS POLLY IMPORTS ===
-import openai
+import time
 import boto3
-import pyaudio
+import queue
+import openai
+import pygame
+import pyuadio
+import threading
+import contextlib
+import speech_recognition as sr
+import paho.mqtt.client as mqtt
+from datetime import datetime, date
+from concurrent.futures import ThreadPoolExecutor
 
-# =============== Your MBVectorArt & gears modules ===============
-#   Replace these with your actual imports or local file references.
-#   We'll assume they already contain the updated "draw_monkey_butler_head" and "gear_place" with scaling.
-import MBVectorArt2 as MBVectorArt
+# My Libs
 import gears2 as gears
+import MBVectorArt2 as MBVectorArt
 
 # =============== PHYSICAL SYSTEMS IMPORTS ===============
 
 
 # =============== GLOBAL CONFIG & API KEYS ===============
-openai.api_key = "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"
-aws_access_key = 'AKIAYASFKTEUSCOD7RT5'
-aws_secret_key = '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'
+openai.api_key       = "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"
+aws_access_key       = 'AKIAYASFKTEUSCOD7RT5'
+aws_secret_key       = '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'
 open_weather_api_key = "c5bbe0c6b2d7ab5f9ae92a9441d47253"
 
 polly_client = boto3.client(
