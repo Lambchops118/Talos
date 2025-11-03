@@ -26,6 +26,13 @@ import paho.mqtt.client as mqtt
 from datetime import datetime, date
 from concurrent.futures import ThreadPoolExecutor
 
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from zoneinfo import ZoneInfo
+from datetime import datetime
+
+TZ = ZoneInfo("America/New_York")  # pick your local tz
+
 # My Libs
 import gears2 as gears
 import MBVectorArt2 as MBVectorArt
@@ -168,6 +175,35 @@ def recognition_callback(recognizer, audio_data, processing_queue):
         print(f"Speech Recognition API error: {e}")
     except Exception as e:
         print(f"Unexpected Error: {e}")
+
+# ==== DAILY TIME BASED FUNCTIONS ====
+
+def daily_forecast_job(gui_queue):
+    # TODO: fetch your forecast here; for now just print/push to GUI
+    today = datetime.now(TZ).strftime("%Y-%m-%d")
+    msg = f"Forecast for {today}: (placeholder) sunny with a chance of bananas."
+    print(msg)
+    # Don't touch pygame here; send to the GUI thread via the queue you already use
+    gui_queue.put(("VOICE_CMD", "daily forecast", msg))
+
+def start_scheduler(gui_queue):
+    scheduler = BackgroundScheduler(
+        timezone=TZ,
+        job_defaults={
+            "coalesce": True,        # merge backlogged runs into one
+            "max_instances": 1,      # don’t overlap the same job
+            "misfire_grace_time": 600  # seconds; OK to fire within 10 min if late
+        },
+    )
+    scheduler.add_job(
+        daily_forecast_job,
+        trigger=CronTrigger(hour=7, minute=30),
+        args=[gui_queue],
+        id="daily_forecast",
+        replace_existing=True,
+    )
+    scheduler.start()
+    return scheduler
 
 
 # =============== START BACKGROUND LISTENING ===============
@@ -482,8 +518,9 @@ if __name__ == "__main__":
 
     stop_listening   = run_voice_recognition(processing_queue) # Start background listening
     command_worker   = threading.Thread(target=process_commands, args=(processing_queue, gui_queue)) # Start worker for command processing
-
     command_worker.start()
+
+    scheduler = start_scheduler(gui_queue)  # <-- start APScheduler
 
     try:
         run_info_panel_gui(gui_queue) # Run pygame GUI in main thread
@@ -492,5 +529,12 @@ if __name__ == "__main__":
             stop_listening(wait_for_stop=False)
         processing_queue.put(None)
         command_worker.join()
+
+        #stop scheduler cleanly
+        try:
+            scheduler.shutdown(wait=False)
+        except Exception:
+            pass
+        
         audio_interface.terminate()
         print("Exiting cleanly.")
