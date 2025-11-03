@@ -178,30 +178,33 @@ def recognition_callback(recognizer, audio_data, processing_queue):
 
 # ==== DAILY TIME BASED FUNCTIONS ====
 
-def daily_forecast_job(gui_queue):
-    # TODO: fetch your forecast here; for now just print/push to GUI
+def daily_forecast_job(gui_queue): # We can probably replace qui_queue with processing_queue if we want TTS playback too.
     today = datetime.now(TZ).strftime("%Y-%m-%d")
-    msg = f"Forecast for {today}: (placeholder) sunny with a chance of bananas."
+    msg   = f"Forecast for {today}: (placeholder) sunny with a chance of bananas."
     print(msg)
-    # Don't touch pygame here; send to the GUI thread via the queue you already use
-    gui_queue.put(("VOICE_CMD", "daily forecast", msg))
+    gui_queue.put(("VOICE_CMD", "daily forecast", msg)) #Bypass pygame in this thread and send to GUI via already established queue. 
+
+#define jobs here
 
 def start_scheduler(gui_queue):
     scheduler = BackgroundScheduler(
-        timezone=TZ,
-        job_defaults={
-            "coalesce": True,        # merge backlogged runs into one
-            "max_instances": 1,      # don’t overlap the same job
-            "misfire_grace_time": 600  # seconds; OK to fire within 10 min if late
+        timezone     = TZ,
+        job_defaults = {
+            "coalesce"           : True,        # merge backlogged runs into one --- might not need this
+            "max_instances"      : 1,           # don’t overlap the same job
+            "misfire_grace_time" : 600          # seconds; OK to fire within 10 mins if late
         },
     )
     scheduler.add_job(
         daily_forecast_job,
-        trigger=CronTrigger(hour=7, minute=30),
-        args=[gui_queue],
-        id="daily_forecast",
-        replace_existing=True,
+        trigger  = CronTrigger(hour=7, minute=30), # Daily at 7:30 AM
+        args     = [gui_queue],
+        id       = "daily_forecast",
+        replace_existing = True,
     )
+
+    #More jobs can be added here.
+
     scheduler.start()
     return scheduler
 
@@ -498,14 +501,7 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
 
         pygame.display.flip()
         clock.tick(30)
-        circle_time += 1
-
-        # Run at a certain time every day
-        # This should probably be moved to its own thread later.
-        now = datetime.now()
-        if now.hour == 7 and now.minute == 30 and now.second == 0 and last_motd != date.today():
-            print("THIS IS THE TASK RUNNING DAILY")
-            last_motd = date.today()           
+        circle_time += 1         
 
     pygame.quit()
     sys.exit()
@@ -535,6 +531,6 @@ if __name__ == "__main__":
             scheduler.shutdown(wait=False)
         except Exception:
             pass
-        
+
         audio_interface.terminate()
         print("Exiting cleanly.")
