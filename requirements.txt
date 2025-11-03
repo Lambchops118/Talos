@@ -1,0 +1,4 @@
+pygame
+openai
+boto3
+speech_recognition
