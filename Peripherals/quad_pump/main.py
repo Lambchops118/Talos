@@ -1,87 +1,71 @@
 # Part of TALOS
 # Monkey Butler Device Operations System
 
-# Main file in raspberry pi pico root folder along with simple.py. This will listen for a "1" on
-# MQTT topics quad_waterer/{16, 17, 18, 19} and run the pump for 8 seconds when called. It will turn off the pin
-# after 8 seconds. It will also listen for a "0" to turn off the pin immediately. It will publish the pin status
-# to status/{16, 17, 18, 19} after any change. 
+#
 
-import time
-import network
-import machine
-from   umqtt.simple import MQTTClient
+import machine, time
+import uasyncio as asyncio
+from   mqtt_as  import MQTTClient, config
 
-# Configuration
-WIFI_SSID         = 'Verizon_4VLXXY'
-WIFI_PASSWORD     = 'artery4-fob-vim'
-MQTT_BROKER       = '192.168.1.160'
-MQTT_CLIENT_ID    = 'pico-w-client'
-MQTT_TOPIC_PREFIX = b'quad_pump/'  # example:  waterer_pump/4  (1-4) 
-CONTROL_TOPICS    = [MQTT_TOPIC_PREFIX + bytes(str(pin), 'utf-8') for pin in [16, 17, 18, 19]]
+WIFI_SSID     = '...'
+WIFI_PASS     = '...'
+BROKER        = '192.168.1.160'
+TOPIC_PREFIX  = b'quad_pump/'
+STATUS_PREFIX = b'status/'
+RUN_SECONDS   = 8
+PINS          = {n: machine.Pin(n, machine.Pin.OUT) for n in (16,17,18,19)}
 
-# Pin setup
-PIN_NUMBERS       = [16, 17, 18, 19]
-PINS              = {pin_num: machine.Pin(pin_num, machine.Pin.OUT) for pin_num in PIN_NUMBERS}
+config['ssid']      = WIFI_SSID
+config['wifi_pw']   = WIFI_PASS
+config['server']    = BROKER
+config['client_id'] = 'pico-w-client'
+config['will']      = (b'status/online', b'0', True, 1)
 
-print('started')
+async def publish_state(client, pin): # Publish the current state of the pump (on/off)
+    await client.publish(
+        STATUS_PREFIX + str(pin).encode(),
+        b"1" if PINS[pin].value() else b"0",
+        retain = True,
+        qos    = 1 
+        )
 
-# Wi-Fi connection
-def connect_wifi():
-    print("Connecting to wifi...")
-    wlan = network.WLAN(network.STA_IF)
-    print("wlan: " + str(wlan))
-    wlan.active(True)
-    if not wlan.isconnected():
-        print("wlan not connected...")
-        wlan.connect(WIFI_SSID, WIFI_PASSWORD)
-        print("WIFI_SSID: " + WIFI_SSID)
-        print("WIFI_PASSWORD: " + WIFI_PASSWORD)
-        while not wlan.isconnected():
-            print("Sleeping...")
-            time.sleep(0.5)
-    print('Connected to Wi-Fi:', wlan.ifconfig())
+async def run_pump(client, pin, seconds): # Run the pump for a specified number of seconds
+    PINS[pin].value(1)
+    await publish_state(client, pin)
+    await asyncio.sleep(seconds)
+    PINS[pin].value(0)
+    await publish_state(client, pin)
 
-# MQTT message callback
-def mqtt_callback(topic, msg):
-    try:
-        pin_number = int(topic.decode().split('/')[-1])
-        if pin_number in PINS:
-            pin = PINS[pin_number]
-            if msg == b'1':
-                pin.value(1)
-                time.sleep(8)   # RUN PUMP FOR 8 SECONDS
-                pin.value(0)
-            elif msg == b'0':
-                pin.value(0)
-            else:
-                print(f"Invalid command: {msg}")
-                return
-            # Publish new status
-            status_topic = b'status/' + bytes(str(pin_number), 'utf-8')
-            print(status_topic)
-            client.publish(status_topic, str(pin.value()))
-    except Exception as e:
-        print('Error handling message:', e)
+async def messages(client): # Handle incoming MQTT messages
+    async for topic, msg, retained in client.queue:
+        try:
+            pin = int(topic.split(b'/')[-1])
+            if pin not in PINS: continue
+            txt = msg.decode()
+            if txt.startswith('1'):
+                seconds = RUN_SECONDS # Defined at top
+                if ':' in txt:
+                    seconds = max(1, min(3600, int(txt.split(':',1)[1])))
+                asyncio.create_task(run_pump(client, pin, seconds)) #fire-and-forget. Does not block message handling
+            elif txt == '0':
+                PINS[pin].value(0)
+                await publish_state(client, pin)
+        except Exception as e:
+            print("msg err:", e)
 
-# Connect Wi-Fi
-connect_wifi()
+async def main(): # Main entry point
+    client = MQTTClient(config)
+    await client.connect()
+    await client.publish(b'status/online', b'1', retain = True, qos = 1)
 
-# Setup MQTT
-client = MQTTClient(MQTT_CLIENT_ID, MQTT_BROKER)
+    for pin in PINS:
+        await client.subscribe(TOPIC_PREFIX + str(pin).encode(), 1)
+    asyncio.create_task(messages(client)) #This handles incoming messages
 
-print("MQTT_CLIENT_ID: " + MQTT_CLIENT_ID)
-print("MQTT_BROKER: " + MQTT_BROKER)
+    while True: # Keep the main task alive
+        await asyncio.sleep(3600)
 
-client.set_callback(mqtt_callback)
-client.connect()
-for topic in CONTROL_TOPICS:
-    client.subscribe(topic)
-    print("Subscribed to: " + str(topic))
-
-# Main loop
 try:
-    while True:
-        client.check_msg()
-        time.sleep(0.1)
-except KeyboardInterrupt:
-    client.disconnect()
+    asyncio.run(main())
+finally:
+    asyncio.new_event_loop()

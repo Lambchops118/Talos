@@ -12,30 +12,31 @@ class MQTTClient:
         self,
         client_id,
         server,
-        port=0,
-        user=None,
-        password=None,
-        keepalive=0,
-        ssl=None,
-        ssl_params={},
+        port       = 0,
+        user       = None,
+        password   = None,
+        keepalive  = 0,
+        ssl        = None,
+        ssl_params = {},
     ):
         if port == 0:
             port = 8883 if ssl else 1883
-        self.client_id = client_id
-        self.sock = None
-        self.server = server
-        self.port = port
-        self.ssl = ssl
+
+        self.client_id  = client_id
+        self.sock       = None
+        self.server     = server
+        self.port       = port
+        self.ssl        = ssl
         self.ssl_params = ssl_params
-        self.pid = 0
-        self.cb = None
-        self.user = user
-        self.pswd = password
-        self.keepalive = keepalive
-        self.lw_topic = None
-        self.lw_msg = None
-        self.lw_qos = 0
-        self.lw_retain = False
+        self.pid        = 0
+        self.cb         = None
+        self.user       = user
+        self.pswd       = password
+        self.keepalive  = keepalive
+        self.lw_topic   = None
+        self.lw_msg     = None
+        self.lw_qos     = 0
+        self.lw_retain  = False
 
     def _send_str(self, s):
         self.sock.write(struct.pack("!H", len(s)))
@@ -57,9 +58,9 @@ class MQTTClient:
     def set_last_will(self, topic, msg, retain=False, qos=0):
         assert 0 <= qos <= 2
         assert topic
-        self.lw_topic = topic
-        self.lw_msg = msg
-        self.lw_qos = qos
+        self.lw_topic  = topic
+        self.lw_msg    = msg
+        self.lw_qos    = qos
         self.lw_retain = retain
 
     def connect(self, clean_session=True, timeout=None):
@@ -75,7 +76,7 @@ class MQTTClient:
         elif self.ssl:
             self.sock = self.ssl.wrap_socket(self.sock, server_hostname=self.server)
         premsg = bytearray(b"\x10\0\0\0\0\0")
-        msg = bytearray(b"\x04MQTT\x04\x02\0\0")
+        msg    = bytearray(b"\x04MQTT\x04\x02\0\0")
 
         sz = 10 + 2 + len(self.client_id)
         msg[6] = clean_session << 1
