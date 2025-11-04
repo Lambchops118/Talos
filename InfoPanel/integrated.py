@@ -38,10 +38,10 @@ import gears2 as gears
 import MBVectorArt2 as MBVectorArt
 
 # API Keys (Change this eventually)
-openai.api_key       = "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"
-aws_access_key       = 'AKIAYASFKTEUSCOD7RT5'
-aws_secret_key       = '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'
-open_weather_api_key = "c5bbe0c6b2d7ab5f9ae92a9441d47253"
+openai.api_key       = ""
+aws_access_key       = ''
+aws_secret_key       = ''
+open_weather_api_key = ""
 
 polly_client = boto3.client(
     'polly',
@@ -51,7 +51,8 @@ polly_client = boto3.client(
 )
 
 # GPT config
-client = openai.OpenAI(api_key="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")
+
+client = openai.OpenAI(api_key="")
 #indoctrination = """Monkey Butler is a chatbot that answers questions with mildly sarcastic responses while acting as a reluctant butler.
 #If asked a simple question, he will taunt the user but still provide an answer. He was designed and engineered by Chops, whom he reluctantly obeys.
 #Monkey Butler does not say his name in responses."""
@@ -197,7 +198,7 @@ def start_scheduler(gui_queue):
     )
     scheduler.add_job(
         daily_forecast_job,
-        trigger  = CronTrigger(hour=7, minute=30), # Daily at 7:30 AM
+        trigger  = CronTrigger(hour=20, minute=11), # Daily at 7:30 AM
         args     = [gui_queue],
         id       = "daily_forecast",
         replace_existing = True,
@@ -376,7 +377,7 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
     is_discord_online = True
     is_server_online = False
 
-    font_path = r"C:\Users\Liam\Desktop\Talos\Talos\InfoPanel\VT323-Regular.ttf"
+    font_path = r"C:\Users\aljac\Desktop\Talos\InfoPanel\VT323-Regular.ttf"
 
     def draw_text_centered(text, bx, by, color_, size=30):
         font_scaled = pygame.font.Font(font_path, int(size*((scale_x+scale_y)/2)))
@@ -453,7 +454,7 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
 
     # A small helper to draw text on screen (top-left)
     # This can be improved. Why do we need a function specifically for top left?
-    font_path = r"C:\Users\Liam\Desktop\Talos\Talos\InfoPanel\VT323-Regular.ttf" 
+    font_path = r"C:\Users\aljac\Desktop\Talos\InfoPanel\VT323-Regular.ttf" 
     def draw_text_topleft(txt, x, y, color_=(255,255,255), size=30):
         font_scaled = pygame.font.Font(font_path, int(size*((scale_x+scale_y)/2)))
         surface     = font_scaled.render(txt, True, color_)
