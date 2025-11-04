@@ -21,15 +21,15 @@ import pygame
 import pyaudio
 import threading
 import contextlib
+from   zoneinfo import ZoneInfo
+from   datetime import datetime
 import speech_recognition as sr
 import paho.mqtt.client as mqtt
-from datetime import datetime, date
-from concurrent.futures import ThreadPoolExecutor
+from   datetime import datetime, date
+from   apscheduler.triggers.cron import CronTrigger
+from   concurrent.futures import ThreadPoolExecutor
+from   apscheduler.schedulers.background import BackgroundScheduler
 
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
-from zoneinfo import ZoneInfo
-from datetime import datetime
 
 TZ = ZoneInfo("America/New_York")  # pick your local tz
 
