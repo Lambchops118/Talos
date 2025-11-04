@@ -67,6 +67,8 @@ WAKE_WORD = "butler"
 
 #Create a global PyAudio instance for audio playback, instead of initializing it in the function
 audio_interface = pyaudio.PyAudio()
+# Global audio player instance (initialized in main)
+audio_player = None
 
 # Dates when time-based commands were last run
 last_motd = None
@@ -129,6 +131,55 @@ def turn_on_lights(room):
 
 
 # =============== AUDIO PLAYBACK ===============
+class AudioPlayer:
+    """Serializes playback of PCM audio without writing temp files."""
+    def __init__(self, pyaudio_iface, *, rate=16000, channels=1, sample_width=2, chunk=1024):
+        self._pa = pyaudio_iface
+        self._rate = rate
+        self._channels = channels
+        self._format = self._pa.get_format_from_width(sample_width)
+        self._chunk = chunk
+        self._queue = queue.Queue()
+        self._stop_evt = threading.Event()
+        self._thread = threading.Thread(target=self._worker, daemon=True)
+        self._thread.start()
+
+    def _worker(self):
+        while not self._stop_evt.is_set():
+            pcm = self._queue.get()
+            if pcm is None:
+                break
+            try:
+                stream = self._pa.open(
+                    format=self._format,
+                    channels=self._channels,
+                    rate=self._rate,
+                    output=True,
+                )
+                for i in range(0, len(pcm), self._chunk):
+                    stream.write(pcm[i:i + self._chunk])
+            except Exception as e:
+                print(f"Audio playback error: {e}")
+            finally:
+                try:
+                    stream.stop_stream()
+                    stream.close()
+                except Exception:
+                    pass
+                self._queue.task_done()
+
+    def enqueue(self, pcm_bytes: bytes):
+        self._queue.put(pcm_bytes)
+
+    def stop(self, wait=True):
+        self._stop_evt.set()
+        self._queue.put(None)
+        if wait:
+            try:
+                self._thread.join()
+            except Exception:
+                pass
+
 def play_audio(filename): #Plays the WAV from AWS Polly then deletes the file.
     try:
         chunk = 1024 
@@ -304,19 +355,27 @@ def handle_command(command, gui_queue): # Worker thread that processes commands 
             pcm_data = stream.read()
             print("Speech synthesized successfully.")
 
-        filename = "speech_output.wav"
-        with wave.open(filename, 'wb') as wf:
-            print("Writing PCM data to WAV file...")
-            wf.setnchannels(1)
-            wf.setsampwidth(2)
-            wf.setframerate(16000)
-            wf.writeframesraw(pcm_data)
-            print(f"WAV file '{filename}' created successfully.")
-
-        audio_thread = threading.Thread(target=play_audio, args=(filename,))
-        print("Starting audio playback thread...")
-        audio_thread.start()
-        print("Audio playback thread started.")
+        # Enqueue audio for serialized playback without writing temp files
+        if audio_player is not None:
+            print("Queueing audio for playback...")
+            audio_player.enqueue(pcm_data)
+        else:
+            # Fallback: play directly if audio player not started
+            print("Audio player not initialized; using direct playback fallback.")
+            try:
+                stream = audio_interface.open(
+                    format=audio_interface.get_format_from_width(2),
+                    channels=1,
+                    rate=16000,
+                    output=True,
+                )
+                chunk = 1024
+                for i in range(0, len(pcm_data), chunk):
+                    stream.write(pcm_data[i:i+chunk])
+                stream.stop_stream()
+                stream.close()
+            except Exception as e:
+                print(f"Direct playback fallback failed: {e}")
     except openai.OpenAIError as e:
         print(f"OpenAI API Error: {e}")
     except boto3.exceptions.Boto3Error as e:
@@ -513,6 +572,9 @@ if __name__ == "__main__":
     gui_queue    = queue.Queue() # Queue for GUI Updates                    --- this is the queue to show text on the GUI
     processing_queue = queue.Queue() # Queue for processing recognized commands --- This is the queue to process the commands
 
+    # Initialize serialized audio player
+    audio_player = AudioPlayer(audio_interface)
+
     stop_listening   = run_voice_recognition(processing_queue) # Start background listening
     command_worker   = threading.Thread(target=process_commands, args=(processing_queue, gui_queue)) # Start worker for command processing
     command_worker.start()
@@ -533,5 +595,10 @@ if __name__ == "__main__":
         except Exception:
             pass
 
+        try:
+            if audio_player is not None:
+                audio_player.stop()
+        except Exception:
+            pass
         audio_interface.terminate()
         print("Exiting cleanly.")
