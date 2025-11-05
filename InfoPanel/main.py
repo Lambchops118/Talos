@@ -366,8 +366,9 @@ def draw_monkey_butler_head(screen, base_x, base_y, scale_x, scale_y, color_):
     MBVectorArt.draw_monkey_butler_head(screen, base_x, base_y, scale_x, scale_y, color_)
 
 def draw_scanlines(screen, screen_width, screen_height):
-    for y in range(0, screen_width, 4):
-        pygame.draw.line(screen, (0, 50, 0), (0, y), (8000, y), 1)
+    for y in range(0, screen_width, 2): # every 4 pixels
+        pygame.draw.line(screen, (0, 0, 0), (0, y), (8000, y), 1) # black line, 2 pixels thick
+
 
 def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
     # Example time & date
@@ -492,7 +493,6 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
 
         # --- RENDER THE FRAME ---
         screen.fill((0, 0, 0))
-        #draw_scanlines(screen, screen_width, screen_height)
         static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time)
 
         # Animate monkey butler
@@ -536,7 +536,6 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
             camera_target=(0, 0, 1), 
             zsort=True
         )
-
 
         pygame.display.flip()
         clock.tick(30)
