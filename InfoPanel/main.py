@@ -366,9 +366,61 @@ def draw_monkey_butler_head(screen, base_x, base_y, scale_x, scale_y, color_):
     MBVectorArt.draw_monkey_butler_head(screen, base_x, base_y, scale_x, scale_y, color_)
 
 def draw_scanlines(screen, screen_width, screen_height):
-    for y in range(0, screen_width, 2): # every 4 pixels
+    for y in range(0, screen_height, 2): # every 4 pixels
         pygame.draw.line(screen, (0, 0, 0), (0, y), (8000, y), 1) # black line, 2 pixels thick
 
+#==================EXPERIMENTAL CRT MONITOR EFFECTS============================================================================================
+
+# def make_scanlines(w, h, spacing=2, alpha=48):
+#     s = pygame.Surface((w, h), pygame.SRCALPHA)
+#     for y in range(0, h, spacing):
+#         s.fill((0, 0, 0, alpha), (0, y, w, 1))
+#     return s
+# def make_shadowmask(w, h, pitch=3, alpha=18):
+#     s = pygame.Surface((w, h), pygame.SRCALPHA)
+#     cols = [(255,0,0,alpha), (0,255,0,alpha), (0,0,255,alpha)]
+#     for x in range(0, w, pitch*3):
+#         for i, col in enumerate(cols):
+#             s.fill(col, (x + i*pitch, 0, pitch, h))
+#     return s
+# def make_vignette(w, h, strength=0.35):
+#     s = pygame.Surface((w, h), pygame.SRCALPHA)
+#     border = int(max(w, h) * 0.06)
+#     # thick ellipse border to darken edges; cheap but effective
+#     pygame.draw.ellipse(s, (0,0,0,int(255*strength)),
+#                         (-int(w*0.02), -int(h*0.02), int(w*1.04), int(h*1.04)),
+#                         width=border)
+#     return s
+# def apply_bloom(dest, src_surf, strength=0.4, scale=0.33):
+#     w, h = src_surf.get_size()
+#     small = pygame.transform.smoothscale(src_surf, (int(w*scale), int(h*scale)))
+#     blurred = pygame.transform.smoothscale(small, (w, h))
+#     blurred.set_alpha(int(255*strength))
+#     dest.blit(blurred, (0,0), special_flags=pygame.BLEND_ADD)
+# def chroma_fringe(base, shift=1, alpha=40):
+#     out = pygame.Surface(base.get_size(), pygame.SRCALPHA)
+#     for color, offset in (((255,0,0), (-shift,0)), ((0,255,0), (0,0)), ((0,0,255), (shift,0))):
+#         c = base.copy()
+#         c.fill(color, special_flags=pygame.BLEND_MULT)
+#         c.set_alpha(alpha)
+#         out.blit(c, offset)
+#     return out
+# def barrel_warp_strips(src, k=0.12, strips=160):
+#     w, h = src.get_size()
+#     dst = pygame.Surface((w, h))
+#     cx = w / 2
+#     strip_w = max(1, w // strips)
+#     for i in range(0, w, strip_w):
+#         col = src.subsurface((i, 0, min(strip_w, w - i), h))
+#         xc = (i + (min(strip_w, w - i))/2) - cx
+#         r = abs(xc) / cx
+#         scale = 1 + k*(r*r)  # more squash near edges
+#         new_h = int(h / scale)
+#         yoff = (h - new_h) // 2
+#         scaled = pygame.transform.smoothscale(col, (col.get_width(), new_h))
+#         dst.blit(scaled, (i, yoff))
+#     return dst
+#==================================================================================================================================================
 
 def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
     # Example time & date
@@ -492,7 +544,7 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
                     last_response = msg[2]
 
         # --- RENDER THE FRAME ---
-        screen.fill((0, 0, 0))
+        screen.fill((0, 25, 0))
         static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time)
 
         # Animate monkey butler
@@ -536,6 +588,17 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
             camera_target=(0, 0, 1), 
             zsort=True
         )
+
+        draw_scanlines(screen, screen_width, screen_height)
+
+
+        #============== CRT EFFECTS APPLICATION ===================
+        #frame = screen.copy()
+        #apply_bloom(screen, frame, strength=1)
+        #make_shadowmask(screen_width, screen_height, pitch=3, alpha=18)
+        #make_scanlines(screen_width, screen_height, spacing=2, alpha=48)
+        #chroma_fringe(base, shift=1, alpha=40)
+        #barrel_warp_strips(frame, k=0.12, strips=160)
 
         pygame.display.flip()
         clock.tick(30)
