@@ -500,6 +500,37 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         draw_text_topleft(f"Last command:  {last_command}",  50, 1300, (255, 255, 0), 36)
         draw_text_topleft(f"Last response: {last_response}", 50, 1350, (255, 255, 0), 36)
 
+        pygame.draw.rect(
+            screen,
+            color,
+            pygame.Rect(500, 100, 100, 500),
+            width=5
+        )
+
+        angle += 0.012
+
+        #try using the blender method:
+        # # Once, when loading assets:
+        character = objl.load_obj_wire(
+            "InfoPanel/butlerv3.obj",
+            keep_edges="feature",       # try "boundary" or "all"
+            feature_angle_deg=50.00,     # larger -> fewer, sharper edges kept
+            target_radius=0.8
+        )
+
+        # Each frame inside your UI draw:
+        renderer.draw(
+            screen,
+            character, # the mesh loaded from the OBJ file
+            model_pos=(0.0, -0.1, 3.2), # move the model “into” the screen
+            model_rot=(0, angle*0.9, 0),   # animate however you like
+            model_scale=3.5,
+            camera_pos=(0, 0, 0),
+            camera_target=(0, 0, 1), 
+            zsort=True
+        )
+
+
         pygame.display.flip()
         clock.tick(30)
         circle_time += 1         
