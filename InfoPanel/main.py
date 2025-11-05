@@ -25,11 +25,12 @@ from   zoneinfo import ZoneInfo
 from   datetime import datetime
 import speech_recognition as sr
 import paho.mqtt.client as mqtt
+import obj_wireframe_loader as objl
 from   datetime import datetime, date
+import moving_vector_portrait as vec3d
 from   apscheduler.triggers.cron import CronTrigger
 from   concurrent.futures import ThreadPoolExecutor
 from   apscheduler.schedulers.background import BackgroundScheduler
-
 
 TZ = ZoneInfo("America/New_York")  # pick your local tz
 
@@ -451,6 +452,12 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
     # so we can display them in the GUI.
     last_command  = ""
     last_response = ""
+
+    #Code for 3d wireframe panel
+    panel_rect = (screen_width - 900 , 300, 340, 260) # x, y, w, h
+    renderer = vec3d.WireframeRenderer(panel_rect, fov=55, near=0.1, far=50) 
+    mesh = vec3d.cube_mesh(size=0.7) # Create a cube mesh
+    angle = 180.0 # Rotation angle for animation
 
     # A small helper to draw text on screen (top-left)
     # This can be improved. Why do we need a function specifically for top left?
