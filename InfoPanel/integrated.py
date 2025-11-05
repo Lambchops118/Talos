@@ -390,7 +390,7 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
     is_discord_online = True
     is_server_online = False
 
-    font_path = r"C:\Users\Liam\Desktop\Talos\Talos\InfoPanel\VT323-Regular.ttf"
+    font_path = r"C:\Users\aljac\Desktop\Talos\InfoPanel\VT323-Regular.ttf"
 
     def draw_text_centered(text, bx, by, color_, size=30):
         font_scaled = pygame.font.Font(font_path, int(size*((scale_x+scale_y)/2)))
@@ -478,7 +478,7 @@ def run_info_panel_gui(cmd_queue):
     last_response = ""
 
     # A small helper to draw text on screen (top-left)
-    font_path = r"C:\Users\Liam\Desktop\Talos\Talos\InfoPanel\VT323-Regular.ttf"
+    font_path = r"C:\Users\aljac\Desktop\Talos\InfoPanel\VT323-Regular.ttf"
     def draw_text_topleft(txt, x, y, color_=(255,255,255), size=30):
         font_scaled = pygame.font.Font(font_path, int(size*((scale_x+scale_y)/2)))
         surface = font_scaled.render(txt, True, color_)
