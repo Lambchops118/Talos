@@ -542,7 +542,7 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         dy = 10 if second % 2 == 0 else 0
         mb_base_x = base_w / 3.2
         mb_base_y = base_h / 2 + dy
-        
+
         draw_monkey_butler_head(framebuffer, mb_base_x, mb_base_y, scale_x, scale_y, color)
         draw_text_topleft(f"Last command:  {last_command}",  50, 1300, color, 36, target=framebuffer)
         draw_text_topleft(f"Last response: {last_response}", 50, 1350, color, 36, target=framebuffer)
@@ -551,12 +551,12 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         renderer.draw(
             framebuffer,
             character,
-            model_pos=(0.0, -0.1, 3.2),
-            model_rot=(0, angle*0.9, 0),
-            model_scale=3.5,
-            camera_pos=(0, 0, 0),
-            camera_target=(0, 0, 1),
-            zsort=True
+            model_pos     = (0.0, -0.1, 3.2),
+            model_rot     = (0, angle*0.9, 0),
+            model_scale   = 3.5,
+            camera_pos    = (0, 0, 0),
+            camera_target = (0, 0, 1),
+            zsort         = True
         )
 
         # === POST FX on a copy (so we can reuse framebuffer if needed) ===
