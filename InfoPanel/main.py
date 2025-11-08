@@ -26,6 +26,7 @@ from   datetime import datetime
 import speech_recognition as sr
 import paho.mqtt.client as mqtt
 from   datetime import datetime, date
+from dotenv import load_dotenv; load_dotenv()
 from   apscheduler.triggers.cron import CronTrigger
 from   concurrent.futures import ThreadPoolExecutor
 from   apscheduler.schedulers.background import BackgroundScheduler
@@ -33,15 +34,15 @@ from   apscheduler.schedulers.background import BackgroundScheduler
 
 TZ = ZoneInfo("America/New_York")  # pick your local tz
 
-# My Libs
+# My Libs (The Greatest)
 import gears2 as gears
 import MBVectorArt2 as MBVectorArt
 
-# API Keys (Change this eventually)
-openai.api_key       = ""
-aws_access_key       = ''
-aws_secret_key       = ''
-open_weather_api_key = ""
+# API Keys (Losers and Haters Companies)
+openai.api_key       = os.getenv("OPENAI_API_KEY")
+aws_access_key       = os.getenv("AWS_ACCESS_KEY")
+aws_secret_key       = os.getenv("AWS_SECRET_KEY")
+open_weather_api_key = os.getenv("OPEN_WEATHER_API_KEY")
 
 polly_client = boto3.client(
     'polly',
@@ -52,7 +53,7 @@ polly_client = boto3.client(
 
 # GPT config
 
-client = openai.OpenAI(api_key="")
+client = openai.OpenAI(api_key=openai.api_key)
 #indoctrination = """Monkey Butler is a chatbot that answers questions with mildly sarcastic responses while acting as a reluctant butler.
 #If asked a simple question, he will taunt the user but still provide an answer. He was designed and engineered by Chops, whom he reluctantly obeys.
 #Monkey Butler does not say his name in responses."""
