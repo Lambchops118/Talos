@@ -82,9 +82,9 @@ void main() {
 W, H           = 2560, 1440 # window size
 GAME_W, GAME_H = 2560, 1440 # internal render size (keeps warp fast)
 
-def build_scanlines(w, h, spacing=2, alpha=48):
+def build_scanlines(w, h, spacing=2, alpha=100):
     surf = pygame.Surface((w, h), pygame.SRCALPHA)
-    line = pygame.Surface((w, 1), pygame.SRCALPHA)
+    line = pygame.Surface((w, 2), pygame.SRCALPHA)
     line.fill((0, 0, 0, alpha))
     for y in range(0, h, spacing):
         surf.blit(line, (0, y))
@@ -216,8 +216,8 @@ def make_crt_masks(w, h, strength_scan=0.18, strength_vignette=0.35): #0.18, 0.3
 
     return scan, vign
 
-SCAN, VIGN = make_crt_masks(GAME_W, GAME_H)
-IX, IY, XNORM, YNORM = precompute_map(GAME_W, GAME_H, kx=0.12, ky=0.10)
+#SCAN, VIGN = make_crt_masks(GAME_W, GAME_H)
+#IX, IY, XNORM, YNORM = precompute_map(GAME_W, GAME_H, kx=0.12, ky=0.10)
 def warp_crt(src_surf):
     """
     src_surf must be GAME_W x GAME_H.

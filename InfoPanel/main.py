@@ -416,9 +416,9 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
     )
 
     # Text
-    draw_text_centered(time_readable,   base_w/2, base_h/2.3, color, 35)
-    draw_text_centered(date_readable,   base_w/2, base_h/2.2, color, 35)
-    draw_text_centered(weekday,         base_w/2, base_h/2.1, color, 35)
+    draw_text_centered(time_readable,   base_w/2, base_h/2.3, color, 56)
+    draw_text_centered(date_readable,   base_w/2, base_h/2.1, color, 56)
+    draw_text_centered(weekday,         base_w/2, base_h/2+25, color, 56)
     draw_text_centered("Monkey Butler", base_w/2, base_h/14,  color, 80)
 
     # Gears
@@ -454,8 +454,8 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
     pygame.display.set_caption("Scalable Pygame Port")
 
     crt = GpuCRT(window_size=(screen_width, screen_height),
-            kx=0.18, ky=0.16, curv=0.3,
-            scan=0.18, vign=0.45, gamma=2.0)
+           kx=0.18, ky=0.16, curv=0.3,
+           scan=0.18, vign=0.45, gamma=2.0)
 
     scale_x = screen_width / base_w
     scale_y = screen_height / base_h
@@ -476,12 +476,12 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
     framebuffer_alpha = pygame.Surface((screen_width, screen_height), pygame.SRCALPHA).convert_alpha()
 
     # Cached overlays (rebuild these if resolution changes)
-    scanlines_surf = fx.build_scanlines(screen_width, screen_height, spacing=2, alpha=48)
+    scanlines_surf = fx.build_scanlines(screen_width, screen_height, spacing=5, alpha=200)
     grille_surf    = fx.build_aperture_grille(screen_width, screen_height, pitch=3, alpha=18)
     vignette_surf  = fx.build_vignette(screen_width, screen_height, margin=24, edge_alpha=70, corner_radius=28)
 
     # Persistence buffer (previous post-processed frame)
-    last_frame = None
+    #last_frame = None
     #========================================================================================
 
     #Code for 3d wireframe panel
@@ -573,10 +573,10 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
 
         
 
-        fx.add_bloom(post, strength=1, down=0.25)
-        post = fx.apply_persistence(last_frame, post, alpha=80)
-        post.blit(grille_surf,   (0, 0))
-        post.blit(scanlines_surf,(0, 0))
+        fx.add_bloom(post, strength=1, down=0.45)
+        #post = fx.apply_persistence(last_frame, post, alpha=80)
+        #post.blit(grille_surf,   (0, 0))
+        
         post.blit(vignette_surf, (0, 0))
         y_jit = fx.random_vertical_jitter_y(100)
         
@@ -584,11 +584,13 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         # Present
         #screen.fill((0, 0, 0))
         screen.blit(post, (0, y_jit))
-        
+
+        post.blit(scanlines_surf,(0, 0))
         crt.draw_surface(post)
         #pygame.display.flip()
         #last_frame = post
 
+        
         clock.tick(60)
         circle_time += 1
         angle += 0.01
