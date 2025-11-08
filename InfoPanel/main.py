@@ -366,7 +366,7 @@ def draw_monkey_butler_head(screen, base_x, base_y, scale_x, scale_y, color_):
 
 def draw_scanlines(screen, screen_width, screen_height):
     for y in range(0, screen_width, 4):
-        pygame.draw.line(screen, (0, 50, 0), (0, y), (8000, y), 1)
+        pygame.draw.line(screen, (0, 0, 0), (0, y), (8000, y), 2)
 
 def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
     # Example time & date
@@ -484,8 +484,7 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
                     last_response = msg[2]
 
         # --- RENDER THE FRAME ---
-        screen.fill((0, 0, 0))
-        #draw_scanlines(screen, screen_width, screen_height)
+        screen.fill((0, 25, 0))
         static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time)
 
         # Animate monkey butler
@@ -499,6 +498,8 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         # near the top-left for demonstration
         draw_text_topleft(f"Last command:  {last_command}",  50, 1300, (255, 255, 0), 36)
         draw_text_topleft(f"Last response: {last_response}", 50, 1350, (255, 255, 0), 36)
+
+        draw_scanlines(screen, screen_width, screen_height)
 
         pygame.display.flip()
         clock.tick(30)
