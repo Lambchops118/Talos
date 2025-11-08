@@ -7,3 +7,7 @@ pump pin #s: 16, 17, 18, 19
 
 
 mosquitto_pub -h 192.168.1.160 -p 1883 -t quad_pump/16 -m 1
+
+"C:\Program Files\mosquitto\mosquitto_pub.exe" -h 192.168.1.160 -p 1883 -t quad_pump/16 -m 1
+
+pin 19 and 17

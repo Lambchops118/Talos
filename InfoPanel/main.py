@@ -58,9 +58,11 @@ client = openai.OpenAI(api_key=openai.api_key)
 #If asked a simple question, he will taunt the user but still provide an answer. He was designed and engineered by Chops, whom he reluctantly obeys.
 #Monkey Butler does not say his name in responses."""
 
-indoctrination = """Monkey Butler is a virtual assistant designed to assist with household tasks and provide information. he is generally aloof. 
-He is not a human and does not have feelings. He is a sophisticated AI created by Chops. Monkey Butler does not say his name in responses.
-He is capable of performing tasks in the physical world through functions connected to the systems."""
+#indoctrination = """Monkey Butler is a virtual assistant designed to assist with household tasks and provide information. he is generally aloof. 
+#He is not a human and does not have feelings. He is a sophisticated AI created by Chops. Monkey Butler does not say his name in responses.
+#He is capable of performing tasks in the physical world through functions connected to the systems."""
+
+indoctrination = """You are Monkey Butler, a jarvis-like assistant for a smart home."""
 
 # SpeechRecognition setup
 r         = sr.Recognizer()
