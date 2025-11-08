@@ -2,10 +2,12 @@ import pygame
 import numpy as np
 
 pygame.init()
-W, H           = 2650, 1440 # window size
-GAME_W, GAME_H = 2650, 1440 # internal render size (keeps warp fast)
+W, H           = 2560, 1440 # window size
+GAME_W, GAME_H = 2560, 1440 # internal render size (keeps warp fast)
 screen         = pygame.display.set_mode((W, H))
 clock          = pygame.time.Clock()
+
+
 
 # --- precompute an inverse barrel-distortion map for the GAME_W x GAME_H grid
 def precompute_map(w, h, kx=0.12, ky=0.12):
@@ -34,7 +36,7 @@ def precompute_map(w, h, kx=0.12, ky=0.12):
     iy = np.clip(np.rint(src_y), 0, h - 1).astype(np.int32)
     return ix, iy, Xd, Yd
 
-IX, IY, XNORM, YNORM = precompute_map(GAME_W, GAME_H, kx=0.12, ky=0.10)
+
 
 # --- precompute CRT “cosmetic” masks (scanlines + vignette) in GAME resolution
 def make_crt_masks(w, h, strength_scan=0.18, strength_vignette=0.35): #0.18, 0.35
@@ -52,7 +54,7 @@ def make_crt_masks(w, h, strength_scan=0.18, strength_vignette=0.35): #0.18, 0.3
 
     return scan, vign
 
-SCAN, VIGN = make_crt_masks(GAME_W, GAME_H)
+
 
 # --- warp + cosmetic pass
 def warp_crt(src_surf):
@@ -82,6 +84,10 @@ def warp_crt(src_surf):
     return pygame.surfarray.make_surface(warped_u8)
 
 # --- demo: draw something on a low-res "game" surface, then warp and scale to window
+
+
+IX, IY, XNORM, YNORM = precompute_map(GAME_W, GAME_H, kx=0.12, ky=0.10)
+SCAN, VIGN = make_crt_masks(GAME_W, GAME_H)
 game_surf = pygame.Surface((GAME_W, GAME_H))
 
 running = True
@@ -93,7 +99,8 @@ while running:
 
     # (Replace this with your actual game rendering)
     game_surf.fill((8, 12, 16))
-    # moving grid to show curvature
+
+    #moving grid to show curvature
     for x in range(0, GAME_W, 16):
         pygame.draw.line(game_surf, (40, 180, 220), (x, 0), (x, GAME_H-1))
     for y in range(0, GAME_H, 16):

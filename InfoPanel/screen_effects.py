@@ -1,0 +1,177 @@
+import pygame
+import random
+import numpy as np
+import math
+
+W, H           = 2560, 1440 # window size
+GAME_W, GAME_H = 2560, 1440 # internal render size (keeps warp fast)
+
+def build_scanlines(w, h, spacing=2, alpha=48):
+    surf = pygame.Surface((w, h), pygame.SRCALPHA)
+    line = pygame.Surface((w, 1), pygame.SRCALPHA)
+    line.fill((0, 0, 0, alpha))
+    for y in range(0, h, spacing):
+        surf.blit(line, (0, y))
+    return surf.convert_alpha()
+
+def build_aperture_grille(w, h, pitch=3, alpha=18):
+    # Vertical dark lines to mimic Trinitron/aperture grille
+    surf = pygame.Surface((w, h), pygame.SRCALPHA)
+    col = pygame.Surface((1, h), pygame.SRCALPHA)
+    col.fill((0, 0, 0, alpha))
+    for x in range(0, w, pitch):
+        surf.blit(col, (x, 0))
+    return surf.convert_alpha()
+
+def build_vignette(w, h, margin=24, edge_alpha=70, corner_radius=28):
+    # Cheap vignette via repeated translucent rect strokes (no per-pixel loops)
+    surf = pygame.Surface((w, h), pygame.SRCALPHA)
+    steps = 6
+    for i in range(steps):
+        a = int(edge_alpha * (i + 1) / steps)
+        pad = margin * (steps - i) // steps
+        pygame.draw.rect(
+            surf,
+            (0, 0, 0, a),
+            pygame.Rect(pad, pad, w - 2 * pad, h - 2 * pad),
+            width=corner_radius // 2,
+            border_radius=corner_radius
+        )
+    return surf.convert_alpha()
+
+def add_bloom(base, strength=0.65, down=0.25):
+    w, h = base.get_size()
+    small = pygame.transform.smoothscale(base, (max(1, int(w * down)), max(1, int(h * down))))
+    blurred = pygame.transform.smoothscale(small, (w, h))
+    blurred.set_alpha(int(255 * strength))
+    # Additive blend where supported; fallback: regular alpha
+    try:
+        base.blit(blurred, (0, 0), special_flags=pygame.BLEND_ADD)
+    except:
+        base.blit(blurred, (0, 0))
+
+def barrel_warp_strips(src, k=0.08, strips=120):
+    """Barrel warp via vertical strips. k ~0.06-0.12 looks nice."""
+    w, h = src.get_size()
+    dst = pygame.Surface((w, h), pygame.SRCALPHA).convert_alpha()
+    strip_w = max(1, w // strips)
+    cx = w / 2.0
+    for i in range(strips):
+        x0 = i * strip_w
+        x1 = w if i == strips - 1 else (i + 1) * strip_w
+        sub = src.subsurface((x0, 0, x1 - x0, h))
+        # normalized -1..1 across width
+        mid = (x0 + x1) * 0.5
+        xn = (mid - cx) / cx
+        # barrel offset (quadratic)
+        dx = int(k * (xn * abs(xn)) * cx)  # outward at edges
+        dst.blit(sub, (x0 + dx, 0))
+    return dst
+
+def apply_persistence(persist_surf, current, alpha=90):
+    """EMA-style ghosting: draw last frame faintly behind current."""
+    if persist_surf is None:
+        return current.copy()
+    ghost = persist_surf.copy()
+    ghost.set_alpha(alpha)  # smaller = longer trails
+    out = current.copy()
+    out.blit(ghost, (0, 0))
+    return out
+
+def apply_flicker(target, t, max_dark=18):
+    """60Hz-ish ripple + random wobble. Very cheap."""
+    # Small sine for regular ripple, a bit of random to break uniformity
+    phase = (pygame.time.get_ticks() / 10000.0) * 59.94
+    a = int(max_dark * (0.5 + 0.5 * math.sin(phase * 2 * math.pi)) + random.uniform(-2, 2))
+    if a <= 0: 
+        return
+    overlay = pygame.Surface(target.get_size(), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, max(0, min(255, a))))
+    target.blit(overlay, (0, 0))
+
+def random_vertical_jitter_y(max_px=90):
+    tick = random.randint(1, 60)
+    if tick == 30:
+        return random.randint(-max_px, max_px)
+    else:
+        return 0
+
+
+
+
+
+
+#BARREL DISTORTION============================================================================================
+
+def precompute_map(w, h, kx=0.12, ky=0.12):
+    """
+    kx, ky > 0 bulge outward (CRT); smaller = flatter. ~0.08–0.18 looks good.
+    We do inverse mapping: for each destination pixel (Xd,Yd), find source (Xs,Ys).
+    """
+    # normalized pixel centers in [-1, 1]
+    xs = np.linspace(-1.0, 1.0, w, dtype=np.float32)
+    ys = np.linspace(-1.0, 1.0, h, dtype=np.float32)
+    Xd, Yd = np.meshgrid(xs, ys)         # shape (h, w)
+
+    # elliptical radius so we can control x/y curvature separately
+    r2 = -(Xd**2) + -(Yd**2)
+    # inverse barrel: Xs = Xd / (1 + kx*r2), Ys = Yd / (1 + ky*r2)
+    # (This approximates the true inverse; good for small k.)
+    Xs = Xd / (1.0 + kx * r2* 0.25)  #the 0.25 controls how curvy the distortion is
+    Ys = Yd / (1.0 + ky * r2* 0.25)  #same
+
+    # map back to source pixel indices
+    src_x = (Xs * 0.5 + 0.5) * (w - 1)
+    src_y = (Ys * 0.5 + 0.5) * (h - 1)
+
+    # integer indices for nearest-neighbor sampling
+    ix = np.clip(np.rint(src_x), 0, w - 1).astype(np.int32)
+    iy = np.clip(np.rint(src_y), 0, h - 1).astype(np.int32)
+    return ix, iy, Xd, Yd
+
+def make_crt_masks(w, h, strength_scan=0.18, strength_vignette=0.35): #0.18, 0.35
+    # scanlines: darken every other row a bit
+    scan = np.ones((h, w, 1), dtype=np.float32)
+    scan[1::2, :, 0] = 1.0 - strength_scan
+
+    # vignette: darken corners radially (smooth)
+    xs   = np.linspace(-1.0, 1.0, w, dtype=np.float32)
+    ys   = np.linspace(-1.0, 1.0, h, dtype=np.float32)
+    X, Y = np.meshgrid(xs, ys)           # (h, w)
+    r    = np.sqrt(X*X + Y*Y)
+    vign = 1.0 - strength_vignette * (r**2)  # gentle
+    vign = np.clip(vign, 0.0, 1.0).reshape(h, w, 1)
+
+    return scan, vign
+
+SCAN, VIGN = make_crt_masks(GAME_W, GAME_H)
+IX, IY, XNORM, YNORM = precompute_map(GAME_W, GAME_H, kx=0.12, ky=0.10)
+def warp_crt(src_surf):
+    """
+    src_surf must be GAME_W x GAME_H.
+    Returns a warped pygame.Surface at the same size (then we scale to window).
+    """
+    # Pygame’s array3d is (w, h, 3). We’ll transpose to (h, w, 3) for easy indexing.
+    src = pygame.surfarray.array3d(src_surf).astype(np.uint8)          # (w, h, 3)
+    src = np.transpose(src, (1, 0, 2))                                  # (h, w, 3)
+
+    # nearest-neighbor sampling using the inverse map
+    warped = src[IY, IX]                                                # (h, w, 3)
+
+    # apply scanlines & vignette (broadcast multiply)
+    warped_lin = warped.astype(np.float32) / 255.0
+    warped_lin *= SCAN
+    warped_lin *= VIGN
+
+    # slight overall gamma to mimic phosphor response
+    gamma = 2.0
+    warped_lin = np.clip(warped_lin, 0.0, 1.0) ** (1.0 / gamma)
+
+    # back to surface
+    warped_u8 = (warped_lin * 255.0 + 0.5).astype(np.uint8)
+    warped_u8 = np.transpose(warped_u8, (1, 0, 2))                      # (w, h, 3)
+    return pygame.surfarray.make_surface(warped_u8)
+
+
+
+#game_surf = pygame.Surface((GAME_W, GAME_H))
