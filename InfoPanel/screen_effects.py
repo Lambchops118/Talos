@@ -1,7 +1,8 @@
-import pygame, moderngl
+
+import math
 import random
 import numpy as np
-import math
+import pygame, moderngl
 from pygame.locals import DOUBLEBUF, OPENGL
 
 # ===== shaders =====
@@ -26,27 +27,32 @@ uniform float     u_curv;    // overall curvature scale
 uniform float     u_scan;    // scanline strength (0..1)
 uniform float     u_vign;    // vignette strength (0..1)
 uniform float     u_gamma;   // display gamma
+uniform float u_zoom;   // 1.00 = no zoom. 1.05..1.20 = small overscan
+
+
 
 in vec2  v_uv;
 out vec4 fragColor;
 
 void main() {
     // center coords around 0,0 and correct for aspect
-    vec2 uv = v_uv;
-    vec2 center = vec2(0.5);
-    vec2 p = uv - center;
+    vec2 uv      = v_uv;
+    vec2 center  = vec2(0.5);
+    vec2 p       = uv - center;
     float aspect = u_texSize.x / u_texSize.y;
-    p.x *= aspect;
+    p.x         *= aspect;
 
     // barrel warp: r' = r * (1 + k*r^2)
     float r2 = dot(p, p);
     float kx = u_kx * u_curv;
     float ky = u_ky * u_curv;
-    vec2 k = vec2(kx, ky);
-    vec2 pw = p * (1.0 + k * r2);   // per-axis strength
-    pw.x /= aspect;
+    vec2 k   = vec2(kx, ky);
+    vec2 pw  = p * (1.0 + k * r2);   // per-axis strength
+    pw.x    /= aspect;
 
     vec2 warped = center + pw;
+    // after computing `warped`:
+    warped = (warped - vec2(0.5)) / u_zoom + vec2(0.5);
 
     // clamp or discard outside
     if (any(lessThan(warped, vec2(0.0))) || any(greaterThan(warped, vec2(1.0)))) {
@@ -60,15 +66,14 @@ void main() {
     // simple scanlines
     float scan = mix(1.0, 0.75, u_scan);
     float line = mix(1.0, 0.5, step(0.5, fract(gl_FragCoord.y * 0.5)));
-    col *= mix(1.0, line, u_scan);
+    col       *= mix(1.0, line, u_scan);
 
     // vignette
     float v = 1.0 - smoothstep(0.6, 0.95, sqrt(r2));
-    col *= mix(1.0, v, u_vign);
+    col    *= mix(1.0, v, u_vign);
 
     // gamma
-    col = pow(col, vec3(1.0 / max(u_gamma, 0.001)));
-
+    col       = pow(col, vec3(1.0 / max(u_gamma, 0.001)));
     fragColor = vec4(col, 1.0);
 }
 """
@@ -87,7 +92,7 @@ def build_scanlines(w, h, spacing=2, alpha=48):
 def build_aperture_grille(w, h, pitch=3, alpha=18):
     # Vertical dark lines to mimic Trinitron/aperture grille
     surf = pygame.Surface((w, h), pygame.SRCALPHA)
-    col = pygame.Surface((1, h), pygame.SRCALPHA)
+    col  = pygame.Surface((1, h), pygame.SRCALPHA)
     col.fill((0, 0, 0, alpha))
     for x in range(0, w, pitch):
         surf.blit(col, (x, 0))
@@ -95,10 +100,10 @@ def build_aperture_grille(w, h, pitch=3, alpha=18):
 
 def build_vignette(w, h, margin=24, edge_alpha=70, corner_radius=28):
     # Cheap vignette via repeated translucent rect strokes (no per-pixel loops)
-    surf = pygame.Surface((w, h), pygame.SRCALPHA)
+    surf  = pygame.Surface((w, h), pygame.SRCALPHA)
     steps = 6
     for i in range(steps):
-        a = int(edge_alpha * (i + 1) / steps)
+        a   = int(edge_alpha * (i + 1) / steps)
         pad = margin * (steps - i) // steps
         pygame.draw.rect(
             surf,
@@ -110,8 +115,8 @@ def build_vignette(w, h, margin=24, edge_alpha=70, corner_radius=28):
     return surf.convert_alpha()
 
 def add_bloom(base, strength=0.65, down=0.25):
-    w, h = base.get_size()
-    small = pygame.transform.smoothscale(base, (max(1, int(w * down)), max(1, int(h * down))))
+    w, h    = base.get_size()
+    small   = pygame.transform.smoothscale(base, (max(1, int(w * down)), max(1, int(h * down))))
     blurred = pygame.transform.smoothscale(small, (w, h))
     blurred.set_alpha(int(255 * strength))
     # Additive blend where supported; fallback: regular alpha
@@ -122,19 +127,17 @@ def add_bloom(base, strength=0.65, down=0.25):
 
 def barrel_warp_strips(src, k=0.08, strips=120):
     """Barrel warp via vertical strips. k ~0.06-0.12 looks nice."""
-    w, h = src.get_size()
-    dst = pygame.Surface((w, h), pygame.SRCALPHA).convert_alpha()
+    w, h    = src.get_size()
+    dst     = pygame.Surface((w, h), pygame.SRCALPHA).convert_alpha()
     strip_w = max(1, w // strips)
-    cx = w / 2.0
+    cx      = w / 2.0
     for i in range(strips):
-        x0 = i * strip_w
-        x1 = w if i == strips - 1 else (i + 1) * strip_w
+        x0  = i * strip_w
+        x1  = w if i == strips - 1 else (i + 1) * strip_w
         sub = src.subsurface((x0, 0, x1 - x0, h))
-        # normalized -1..1 across width
         mid = (x0 + x1) * 0.5
-        xn = (mid - cx) / cx
-        # barrel offset (quadratic)
-        dx = int(k * (xn * abs(xn)) * cx)  # outward at edges
+        xn  = (mid - cx) / cx
+        dx  = int(k * (xn * abs(xn)) * cx)  # outward at edges
         dst.blit(sub, (x0 + dx, 0))
     return dst
 
@@ -144,7 +147,7 @@ def apply_persistence(persist_surf, current, alpha=90):
         return current.copy()
     ghost = persist_surf.copy()
     ghost.set_alpha(alpha)  # smaller = longer trails
-    out = current.copy()
+    out   = current.copy()
     out.blit(ghost, (0, 0))
     return out
 
@@ -152,7 +155,7 @@ def apply_flicker(target, t, max_dark=18):
     """60Hz-ish ripple + random wobble. Very cheap."""
     # Small sine for regular ripple, a bit of random to break uniformity
     phase = (pygame.time.get_ticks() / 10000.0) * 59.94
-    a = int(max_dark * (0.5 + 0.5 * math.sin(phase * 2 * math.pi)) + random.uniform(-2, 2))
+    a     = int(max_dark * (0.5 + 0.5 * math.sin(phase * 2 * math.pi)) + random.uniform(-2, 2))
     if a <= 0: 
         return
     overlay = pygame.Surface(target.get_size(), pygame.SRCALPHA)
@@ -174,13 +177,9 @@ def random_vertical_jitter_y(max_px=90):
 #BARREL DISTORTION============================================================================================
 
 def precompute_map(w, h, kx=0.12, ky=0.12):
-    """
-    kx, ky > 0 bulge outward (CRT); smaller = flatter. ~0.08–0.18 looks good.
-    We do inverse mapping: for each destination pixel (Xd,Yd), find source (Xs,Ys).
-    """
     # normalized pixel centers in [-1, 1]
-    xs = np.linspace(-1.0, 1.0, w, dtype=np.float32)
-    ys = np.linspace(-1.0, 1.0, h, dtype=np.float32)
+    xs     = np.linspace(-1.0, 1.0, w, dtype=np.float32)
+    ys     = np.linspace(-1.0, 1.0, h, dtype=np.float32)
     Xd, Yd = np.meshgrid(xs, ys)         # shape (h, w)
 
     # elliptical radius so we can control x/y curvature separately
@@ -284,6 +283,7 @@ class GpuCRT:
         self.prog['u_vign'].value = vign
         self.prog['u_gamma'].value = gamma
         self.prog['u_texSize'].value = (GAME_W, GAME_H)
+        self.prog['u_zoom'].value = 1.10  # try 1.08–1.18 depending on warp strength
 
     def _ensure_texture(self, size):
         if self.tex is None or self.tex.size != size:
@@ -313,41 +313,41 @@ class GpuCRT:
 
 #Test code to actually run the GPU CRT warp (not used in main app)
 
-def main():
-    pygame.init()
+# def main():
+#     pygame.init()
 
-    # Set OpenGL-enabled display first
-    pygame.display.set_mode((GAME_W, GAME_H), DOUBLEBUF | OPENGL)
-    clock = pygame.time.Clock()
+#     # Set OpenGL-enabled display first
+#     pygame.display.set_mode((GAME_W, GAME_H), DOUBLEBUF | OPENGL)
+#     clock = pygame.time.Clock()
 
-    # Now it's safe to create and convert Surfaces
-    logical = pygame.Surface((GAME_W, GAME_H)).convert()
+#     # Now it's safe to create and convert Surfaces
+#     logical = pygame.Surface((GAME_W, GAME_H)).convert()
 
-    # Initialize the GPU CRT effect AFTER the display is created
-    crt = GpuCRT(window_size=(GAME_W, GAME_H),
-                 #kx=0.12, ky=0.10, scan=0.18, vign=0.35, gamma=2.0, curv=0.25)
-                  kx=0.12, ky=0.12, scan=1, vign=0.25, gamma=1, curv=0.35)
+#     # Initialize the GPU CRT effect AFTER the display is created
+#     crt = GpuCRT(window_size=(GAME_W, GAME_H),
+#                  #kx=0.12, ky=0.10, scan=0.18, vign=0.35, gamma=2.0, curv=0.25)
+#                   kx=0.12, ky=0.12, scan=1, vign=0.25, gamma=1, curv=0.35)
 
-    running = True
-    t = 0.0
-    while running:
-        for e in pygame.event.get():
-            if e.type == pygame.QUIT:
-                running = False
+#     running = True
+#     t = 0.0
+#     while running:
+#         for e in pygame.event.get():
+#             if e.type == pygame.QUIT:
+#                 running = False
 
-        # Draw to logical surface
-        logical.fill((20, 30, 40))
-        x = int((np.sin(t) * 0.5 + 0.5) * (GAME_W - 100))
-        #pygame.draw.rect(logical, (240, 180, 60), (x, GAME_H // 80, 100, 200))
-        pygame.draw.rect(logical, (240, 180, 60), (x, 10, 100, 200))
-        t += 0.02
+#         # Draw to logical surface
+#         logical.fill((20, 30, 40))
+#         x = int((np.sin(t) * 0.5 + 0.5) * (GAME_W - 100))
+#         #pygame.draw.rect(logical, (240, 180, 60), (x, GAME_H // 80, 100, 200))
+#         pygame.draw.rect(logical, (240, 180, 60), (x, 50, 100, 200))
+#         t += 0.02
 
-        # Draw warped version via GPU
-        crt.draw_surface(logical)
+#         # Draw warped version via GPU
+#         crt.draw_surface(logical)
 
-        clock.tick(60)
+#         clock.tick(60)
 
-    pygame.quit()
+#     pygame.quit()
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()
