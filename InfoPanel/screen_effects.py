@@ -325,7 +325,8 @@ def main():
 
     # Initialize the GPU CRT effect AFTER the display is created
     crt = GpuCRT(window_size=(GAME_W, GAME_H),
-                 kx=0.12, ky=0.10, scan=0.18, vign=0.35, gamma=2.0, curv=0.25)
+                 #kx=0.12, ky=0.10, scan=0.18, vign=0.35, gamma=2.0, curv=0.25)
+                  kx=0.12, ky=0.12, scan=1, vign=0.25, gamma=1, curv=0.35)
 
     running = True
     t = 0.0
@@ -337,7 +338,8 @@ def main():
         # Draw to logical surface
         logical.fill((20, 30, 40))
         x = int((np.sin(t) * 0.5 + 0.5) * (GAME_W - 100))
-        pygame.draw.rect(logical, (240, 180, 60), (x, GAME_H // 80, 100, 200))
+        #pygame.draw.rect(logical, (240, 180, 60), (x, GAME_H // 80, 100, 200))
+        pygame.draw.rect(logical, (240, 180, 60), (x, 10, 100, 200))
         t += 0.02
 
         # Draw warped version via GPU
