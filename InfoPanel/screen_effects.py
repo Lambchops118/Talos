@@ -42,6 +42,7 @@ void main() {
     float aspect = u_texSize.x / u_texSize.y;
     p.x         *= aspect;
 
+    
     // barrel warp: r' = r * (1 + k*r^2)
     float r2 = dot(p, p);
     float kx = u_kx * u_curv;
@@ -120,10 +121,12 @@ def add_bloom(base, strength=0.65, down=0.25):
     blurred = pygame.transform.smoothscale(small, (w, h))
     blurred.set_alpha(int(255 * strength))
     # Additive blend where supported; fallback: regular alpha
-    try:
-        base.blit(blurred, (0, 0), special_flags=pygame.BLEND_ADD)
-    except:
-        base.blit(blurred, (0, 0))
+    #try:
+    #    base.blit(blurred, (0, 0), special_flags=pygame.BLEND_ADD)
+    #except:
+    #    base.blit(blurred, (0, 0))
+
+    base.blit(blurred, (0, 0), special_flags=pygame.BLEND_ADD)
 
 def barrel_warp_strips(src, k=0.08, strips=120):
     """Barrel warp via vertical strips. k ~0.06-0.12 looks nice."""
@@ -248,7 +251,7 @@ def warp_crt(src_surf):
 # ================GPU BARREL WARP (unused)===========================================
 class GpuCRT:
     def __init__(self, window_size=(GAME_W, GAME_H),
-                 kx=1, ky=1, scan=1, vign=1, gamma=20.0, curv=1):
+                 kx=1, ky=1, scan=1, vign=10, gamma=20.0, curv=1):
         # Pygame GL window
         pygame.display.set_mode(window_size, DOUBLEBUF | OPENGL)
         self.w, self.h = window_size
@@ -283,7 +286,7 @@ class GpuCRT:
         self.prog['u_vign'].value = vign
         self.prog['u_gamma'].value = gamma
         self.prog['u_texSize'].value = (GAME_W, GAME_H)
-        self.prog['u_zoom'].value = 1.10  # try 1.08–1.18 depending on warp strength
+        self.prog['u_zoom'].value = 1.05  # try 1.08–1.18 depending on warp strength
 
     def _ensure_texture(self, size):
         if self.tex is None or self.tex.size != size:
@@ -299,7 +302,7 @@ class GpuCRT:
     def draw_surface(self, src_surf):
         """Upload src_surf (GAME_W x GAME_H) and draw warped to the GL backbuffer."""
         # Pull pixels as RGB bytes; this is fast enough if the surface is display-format
-        raw = pygame.image.tostring(src_surf, 'RGB', False)
+        raw = pygame.image.tostring(src_surf, 'RGB', True)
         self._ensure_texture((GAME_W, GAME_H))
         self.tex.use(location=0)
         self.tex.write(raw)

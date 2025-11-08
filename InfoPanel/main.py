@@ -27,6 +27,7 @@ from   zoneinfo import ZoneInfo
 from   datetime import datetime
 import speech_recognition as sr
 import paho.mqtt.client as mqtt
+from screen_effects import GpuCRT 
 import obj_wireframe_loader as objl
 from   datetime import datetime, date
 import moving_vector_portrait as vec3d
@@ -452,6 +453,10 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
     screen = pygame.display.set_mode((screen_width, screen_height), pygame.FULLSCREEN)
     pygame.display.set_caption("Scalable Pygame Port")
 
+    crt = GpuCRT(window_size=(screen_width, screen_height),
+            kx=0.18, ky=0.16, curv=0.3,
+            scan=0.18, vign=0.45, gamma=2.0)
+
     scale_x = screen_width / base_w
     scale_y = screen_height / base_h
 
@@ -562,26 +567,33 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         # === POST FX on a copy (so we can reuse framebuffer if needed) ===
         post = framebuffer.copy()
 
-        warped = fx.warp_crt(framebuffer)
-        post.blit(warped,(0,0))
+        
+        #warped = fx.warp_crt(framebuffer)
+        #post.blit(warped,(0,0))
 
-        fx.add_bloom(post, strength=1, down=0.01)
+        
+
+        fx.add_bloom(post, strength=1, down=0.25)
         post = fx.apply_persistence(last_frame, post, alpha=80)
         post.blit(grille_surf,   (0, 0))
         post.blit(scanlines_surf,(0, 0))
         post.blit(vignette_surf, (0, 0))
         y_jit = fx.random_vertical_jitter_y(100)
+        
 
         # Present
         #screen.fill((0, 0, 0))
         screen.blit(post, (0, y_jit))
-
-        pygame.display.flip()
+        
+        crt.draw_surface(post)
+        #pygame.display.flip()
         #last_frame = post
 
         clock.tick(60)
         circle_time += 1
-        angle += 0.01    
+        angle += 0.01
+
+        
 
     pygame.quit()
     sys.exit()
