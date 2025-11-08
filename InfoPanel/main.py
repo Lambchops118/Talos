@@ -542,13 +542,11 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         dy = 10 if second % 2 == 0 else 0
         mb_base_x = base_w / 3.2
         mb_base_y = base_h / 2 + dy
+        
         draw_monkey_butler_head(framebuffer, mb_base_x, mb_base_y, scale_x, scale_y, color)
         draw_text_topleft(f"Last command:  {last_command}",  50, 1300, color, 36, target=framebuffer)
         draw_text_topleft(f"Last response: {last_response}", 50, 1350, color, 36, target=framebuffer)
 
-        # character = objl.load_obj_wire( "InfoPanel/butlerv3.obj", keep_edges="feature", # try "boundary" or "all" 
-        #                                feature_angle_deg=50.00, # larger -> fewer, sharper edges kept
-        #                                  target_radius=0.8 )
 
         renderer.draw(
             framebuffer,
@@ -581,7 +579,6 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         pygame.display.flip()
         #last_frame = post
 
-        #pygame.display.flip()
         clock.tick(60)
         circle_time += 1
         angle += 0.01    

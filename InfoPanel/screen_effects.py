@@ -1,7 +1,77 @@
-import pygame
+import pygame, moderngl
 import random
 import numpy as np
 import math
+from pygame.locals import DOUBLEBUF, OPENGL
+
+# ===== shaders =====
+
+VS_SRC = """
+#version 330
+in vec2 in_pos;              // clip-space quad: [-1,1]
+out vec2 v_uv;               // 0..1 UV
+void main() {
+    gl_Position = vec4(in_pos, 0.0, 1.0);
+    v_uv = in_pos * 0.5 + 0.5;
+}
+"""
+
+FS_SRC = """
+#version 330
+uniform sampler2D u_tex;
+uniform vec2      u_texSize; // (w, h)
+uniform float     u_kx;      // barrel strength x
+uniform float     u_ky;      // barrel strength y
+uniform float     u_curv;    // overall curvature scale
+uniform float     u_scan;    // scanline strength (0..1)
+uniform float     u_vign;    // vignette strength (0..1)
+uniform float     u_gamma;   // display gamma
+
+in vec2  v_uv;
+out vec4 fragColor;
+
+void main() {
+    // center coords around 0,0 and correct for aspect
+    vec2 uv = v_uv;
+    vec2 center = vec2(0.5);
+    vec2 p = uv - center;
+    float aspect = u_texSize.x / u_texSize.y;
+    p.x *= aspect;
+
+    // barrel warp: r' = r * (1 + k*r^2)
+    float r2 = dot(p, p);
+    float kx = u_kx * u_curv;
+    float ky = u_ky * u_curv;
+    vec2 k = vec2(kx, ky);
+    vec2 pw = p * (1.0 + k * r2);   // per-axis strength
+    pw.x /= aspect;
+
+    vec2 warped = center + pw;
+
+    // clamp or discard outside
+    if (any(lessThan(warped, vec2(0.0))) || any(greaterThan(warped, vec2(1.0)))) {
+        fragColor = vec4(0.0, 0.0, 0.0, 1.0);
+        return;
+    }
+
+    // sample
+    vec3 col = texture(u_tex, warped).rgb;
+
+    // simple scanlines
+    float scan = mix(1.0, 0.75, u_scan);
+    float line = mix(1.0, 0.5, step(0.5, fract(gl_FragCoord.y * 0.5)));
+    col *= mix(1.0, line, u_scan);
+
+    // vignette
+    float v = 1.0 - smoothstep(0.6, 0.95, sqrt(r2));
+    col *= mix(1.0, v, u_vign);
+
+    // gamma
+    col = pow(col, vec3(1.0 / max(u_gamma, 0.001)));
+
+    fragColor = vec4(col, 1.0);
+}
+"""
 
 W, H           = 2560, 1440 # window size
 GAME_W, GAME_H = 2560, 1440 # internal render size (keeps warp fast)
@@ -175,3 +245,107 @@ def warp_crt(src_surf):
 
 
 #game_surf = pygame.Surface((GAME_W, GAME_H))
+
+# ================GPU BARREL WARP (unused)===========================================
+class GpuCRT:
+    def __init__(self, window_size=(GAME_W, GAME_H),
+                 kx=1, ky=1, scan=1, vign=1, gamma=20.0, curv=1):
+        # Pygame GL window
+        pygame.display.set_mode(window_size, DOUBLEBUF | OPENGL)
+        self.w, self.h = window_size
+
+        # ModernGL context
+        self.ctx = moderngl.create_context()
+        self.ctx.enable(moderngl.BLEND)
+
+        # Program
+        self.prog = self.ctx.program(vertex_shader=VS_SRC, fragment_shader=FS_SRC)
+
+        # Fullscreen quad (-1..1)
+        quad = np.array([
+            -1.0, -1.0,
+             1.0, -1.0,
+            -1.0,  1.0,
+            -1.0,  1.0,
+             1.0, -1.0,
+             1.0,  1.0,
+        ], dtype='f4')
+        self.vbo = self.ctx.buffer(quad.tobytes())
+        self.vao = self.ctx.simple_vertex_array(self.prog, self.vbo, 'in_pos')
+
+        # Source texture placeholder (created on first draw)
+        self.tex = None
+
+        # Uniforms (constant unless you change them)
+        self.prog['u_kx'].value = kx
+        self.prog['u_ky'].value = ky
+        self.prog['u_curv'].value = curv
+        self.prog['u_scan'].value = scan
+        self.prog['u_vign'].value = vign
+        self.prog['u_gamma'].value = gamma
+        self.prog['u_texSize'].value = (GAME_W, GAME_H)
+
+    def _ensure_texture(self, size):
+        if self.tex is None or self.tex.size != size:
+            # RGBA8 texture with linear filtering
+            self.ctx.viewport = (0, 0, self.w, self.h)
+            self.tex = self.ctx.texture(size, 3, dtype='f1')  # 3 = RGB
+            self.tex.filter = (moderngl.LINEAR, moderngl.LINEAR)
+            self.tex.repeat_x = False
+            self.tex.repeat_y = False
+            self.prog['u_tex'].value = 0  # bound to tex unit 0
+            self.tex.use(location=0)
+
+    def draw_surface(self, src_surf):
+        """Upload src_surf (GAME_W x GAME_H) and draw warped to the GL backbuffer."""
+        # Pull pixels as RGB bytes; this is fast enough if the surface is display-format
+        raw = pygame.image.tostring(src_surf, 'RGB', False)
+        self._ensure_texture((GAME_W, GAME_H))
+        self.tex.use(location=0)
+        self.tex.write(raw)
+
+        # Draw
+        self.ctx.clear(0.0, 0.0, 0.0, 1.0)
+        self.vao.render()  # draws full-screen quad
+        pygame.display.flip()
+
+
+
+#Test code to actually run the GPU CRT warp (not used in main app)
+
+def main():
+    pygame.init()
+
+    # Set OpenGL-enabled display first
+    pygame.display.set_mode((GAME_W, GAME_H), DOUBLEBUF | OPENGL)
+    clock = pygame.time.Clock()
+
+    # Now it's safe to create and convert Surfaces
+    logical = pygame.Surface((GAME_W, GAME_H)).convert()
+
+    # Initialize the GPU CRT effect AFTER the display is created
+    crt = GpuCRT(window_size=(GAME_W, GAME_H),
+                 kx=0.12, ky=0.10, scan=0.18, vign=0.35, gamma=2.0, curv=0.25)
+
+    running = True
+    t = 0.0
+    while running:
+        for e in pygame.event.get():
+            if e.type == pygame.QUIT:
+                running = False
+
+        # Draw to logical surface
+        logical.fill((20, 30, 40))
+        x = int((np.sin(t) * 0.5 + 0.5) * (GAME_W - 100))
+        pygame.draw.rect(logical, (240, 180, 60), (x, GAME_H // 80, 100, 200))
+        t += 0.02
+
+        # Draw warped version via GPU
+        crt.draw_surface(logical)
+
+        clock.tick(60)
+
+    pygame.quit()
+
+if __name__ == "__main__":
+    main()
