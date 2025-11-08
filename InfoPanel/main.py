@@ -649,11 +649,12 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
 
         # 6) tiny vertical jitter & flicker
         y_jit = random_vertical_jitter_y(1)
-        apply_flicker(post, pygame.time.get_ticks() / 1000.0, max_dark=14)
+        #apply_flicker(post, pygame.time.get_ticks() / 1000.0, max_dark=14)
 
         # Present
         screen.fill((0, 0, 0))
         screen.blit(post, (0, y_jit))
+        #screen.blit(post, (0, 0))
         pygame.display.flip()
 
         # Save for next-frame persistence
@@ -669,7 +670,7 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         #barrel_warp_strips(frame, k=0.12, strips=160)
 
         pygame.display.flip()
-        clock.tick(30)
+        clock.tick(60)
         circle_time += 1         
 
     pygame.quit()
