@@ -18,6 +18,7 @@ import boto3
 import queue
 import openai
 import pygame
+import random
 import pyaudio
 import threading
 import contextlib
@@ -337,7 +338,7 @@ def process_commands(processing_queue, gui_queue): #Continuously read commands f
 
 
 # =============== PYGAME INFO PANEL ===============
-color         = (0, 255, 0)
+color         = (0, 255, 100)
 color_offline = (100, 100, 100)
 red           = (255, 0, 0)
 
@@ -369,7 +370,94 @@ def draw_scanlines(screen, screen_width, screen_height):
     for y in range(0, screen_height, 2): # every 4 pixels
         pygame.draw.line(screen, (0, 0, 0), (0, y), (8000, y), 1) # black line, 2 pixels thick
 
+#===================================================================================================
+def build_scanlines(w, h, spacing=2, alpha=48):
+    surf = pygame.Surface((w, h), pygame.SRCALPHA)
+    line = pygame.Surface((w, 1), pygame.SRCALPHA)
+    line.fill((0, 0, 0, alpha))
+    for y in range(0, h, spacing):
+        surf.blit(line, (0, y))
+    return surf.convert_alpha()
 
+def build_aperture_grille(w, h, pitch=3, alpha=18):
+    # Vertical dark lines to mimic Trinitron/aperture grille
+    surf = pygame.Surface((w, h), pygame.SRCALPHA)
+    col = pygame.Surface((1, h), pygame.SRCALPHA)
+    col.fill((0, 0, 0, alpha))
+    for x in range(0, w, pitch):
+        surf.blit(col, (x, 0))
+    return surf.convert_alpha()
+
+def build_vignette(w, h, margin=24, edge_alpha=70, corner_radius=28):
+    # Cheap vignette via repeated translucent rect strokes (no per-pixel loops)
+    surf = pygame.Surface((w, h), pygame.SRCALPHA)
+    steps = 6
+    for i in range(steps):
+        a = int(edge_alpha * (i + 1) / steps)
+        pad = margin * (steps - i) // steps
+        pygame.draw.rect(
+            surf,
+            (0, 0, 0, a),
+            pygame.Rect(pad, pad, w - 2 * pad, h - 2 * pad),
+            width=corner_radius // 2,
+            border_radius=corner_radius
+        )
+    return surf.convert_alpha()
+
+def add_bloom(base, strength=0.65, down=0.25):
+    w, h = base.get_size()
+    small = pygame.transform.smoothscale(base, (max(1, int(w * down)), max(1, int(h * down))))
+    blurred = pygame.transform.smoothscale(small, (w, h))
+    blurred.set_alpha(int(255 * strength))
+    # Additive blend where supported; fallback: regular alpha
+    try:
+        base.blit(blurred, (0, 0), special_flags=pygame.BLEND_ADD)
+    except:
+        base.blit(blurred, (0, 0))
+
+def barrel_warp_strips(src, k=0.08, strips=120):
+    """Barrel warp via vertical strips. k ~0.06-0.12 looks nice."""
+    w, h = src.get_size()
+    dst = pygame.Surface((w, h), pygame.SRCALPHA).convert_alpha()
+    strip_w = max(1, w // strips)
+    cx = w / 2.0
+    for i in range(strips):
+        x0 = i * strip_w
+        x1 = w if i == strips - 1 else (i + 1) * strip_w
+        sub = src.subsurface((x0, 0, x1 - x0, h))
+        # normalized -1..1 across width
+        mid = (x0 + x1) * 0.5
+        xn = (mid - cx) / cx
+        # barrel offset (quadratic)
+        dx = int(k * (xn * abs(xn)) * cx)  # outward at edges
+        dst.blit(sub, (x0 + dx, 0))
+    return dst
+
+def apply_persistence(persist_surf, current, alpha=90):
+    """EMA-style ghosting: draw last frame faintly behind current."""
+    if persist_surf is None:
+        return current.copy()
+    ghost = persist_surf.copy()
+    ghost.set_alpha(alpha)  # smaller = longer trails
+    out = current.copy()
+    out.blit(ghost, (0, 0))
+    return out
+
+def apply_flicker(target, t, max_dark=18):
+    """60Hz-ish ripple + random wobble. Very cheap."""
+    # Small sine for regular ripple, a bit of random to break uniformity
+    phase = (pygame.time.get_ticks() / 10000.0) * 59.94
+    a = int(max_dark * (0.5 + 0.5 * math.sin(phase * 2 * math.pi)) + random.uniform(-2, 2))
+    if a <= 0: 
+        return
+    overlay = pygame.Surface(target.get_size(), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, max(0, min(255, a))))
+    target.blit(overlay, (0, 0))
+
+def random_vertical_jitter_y(max_px=1):
+    return random.randint(-max_px, max_px)
+
+#=====================================================================================================
 
 def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
     # Example time & date
@@ -435,6 +523,10 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
     info = pygame.display.Info()
 
     screen_width, screen_height = info.current_w, info.current_h
+
+    w = screen_width
+    h = screen_height
+
     print("Detected screen resolution:", screen_width, screen_height)
 
     base_w, base_h = parse_base_resolution()
@@ -455,6 +547,21 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
     last_command  = ""
     last_response = ""
 
+
+    #========================================================================================
+    # Off-screen render target
+    framebuffer = pygame.Surface((screen_width, screen_height)).convert()
+    framebuffer_alpha = pygame.Surface((screen_width, screen_height), pygame.SRCALPHA).convert_alpha()
+
+    # Cached overlays (rebuild these if resolution changes)
+    scanlines_surf = build_scanlines(screen_width, screen_height, spacing=2, alpha=48)
+    grille_surf    = build_aperture_grille(screen_width, screen_height, pitch=3, alpha=18)
+    vignette_surf  = build_vignette(screen_width, screen_height, margin=24, edge_alpha=70, corner_radius=28)
+
+    # Persistence buffer (previous post-processed frame)
+    last_frame = None
+    #========================================================================================
+
     #Code for 3d wireframe panel
     panel_rect = (screen_width - 900 , 300, 340, 260) # x, y, w, h
     renderer = vec3d.WireframeRenderer(panel_rect, fov=55, near=0.1, far=50) 
@@ -470,7 +577,7 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         screen.blit(surface, (int(x*scale_x), int(y*scale_y)))
 
     last_motd = None
-    while running:
+    while running: # [][]][][][][][][][][][][][][][][][][]MAIN LOOP[][][][][][][][][][][][][][][][][]
         # --- EVENT HANDLING ---
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -492,46 +599,65 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
                     last_command  = msg[1]
                     last_response = msg[2]
 
-        # --- RENDER THE FRAME ---
-        screen.fill((0, 25, 0))
-        static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time)
+        # --- RENDER THE FRAME --- 
+        framebuffer.fill((0, 25, 0))  # draw to off-screen
+        # replace every 'screen' draw call with 'framebuffer' for your content:
+        static_drawings(framebuffer, base_w, base_h, scale_x, scale_y, circle_time)
 
-        # Animate monkey butler
+        # ... monkey head, text, 3D render, etc ...
         second = int(time.strftime("%S"))
         dy = 10 if second % 2 == 0 else 0
         mb_base_x = base_w / 3.2
         mb_base_y = base_h / 2 + dy
-        draw_monkey_butler_head(screen, mb_base_x, mb_base_y, scale_x, scale_y, (0, 255, 0))
-
-        # Draw the "last voice command" and "last GPT response"
-        # near the top-left for demonstration
+        draw_monkey_butler_head(framebuffer, mb_base_x, mb_base_y, scale_x, scale_y, color)
         draw_text_topleft(f"Last command:  {last_command}",  50, 1300, (255, 255, 0), 36)
         draw_text_topleft(f"Last response: {last_response}", 50, 1350, (255, 255, 0), 36)
 
-        angle += 0.012
+        character = objl.load_obj_wire( "InfoPanel/butlerv3.obj", keep_edges="feature", # try "boundary" or "all" 
+                                       feature_angle_deg=50.00, # larger -> fewer, sharper edges kept
+                                         target_radius=0.8 )
 
-        #try using the blender method:
-        # # Once, when loading assets:
-        character = objl.load_obj_wire(
-            "InfoPanel/butlerv3.obj",
-            keep_edges="feature",       # try "boundary" or "all"
-            feature_angle_deg=50.00,     # larger -> fewer, sharper edges kept
-            target_radius=0.8
-        )
-
-        # Each frame inside your UI draw:
         renderer.draw(
-            screen,
-            character, # the mesh loaded from the OBJ file
-            model_pos=(0.0, -0.1, 3.2), # move the model “into” the screen
-            model_rot=(0, angle*0.9, 0),   # animate however you like
+            framebuffer,
+            character,
+            model_pos=(0.0, -0.1, 3.2),
+            model_rot=(0, angle*0.9, 0),
             model_scale=3.5,
             camera_pos=(0, 0, 0),
-            camera_target=(0, 0, 1), 
+            camera_target=(0, 0, 1),
             zsort=True
         )
 
-        draw_scanlines(screen, screen_width, screen_height)
+        # === POST FX on a copy (so we can reuse framebuffer if needed) ===
+        post = framebuffer.copy()
+
+        # 1) subtle bloom (cheap)
+        add_bloom(post, strength=0.55, down=0.25)
+
+        # 2) phosphor persistence
+        post = apply_persistence(last_frame, post, alpha=80)
+
+        # 3) shadow mask & scanlines (cached overlays)
+        post.blit(grille_surf,   (0, 0))
+        post.blit(scanlines_surf,(0, 0))
+
+        # 4) barrel curve (strip warp)
+        #post = barrel_warp_strips(post, k=0.08, strips=1000)
+
+        # 5) vignette / rounded-corner darkening
+        post.blit(vignette_surf, (0, 0))
+
+        # 6) tiny vertical jitter & flicker
+        y_jit = random_vertical_jitter_y(1)
+        apply_flicker(post, pygame.time.get_ticks() / 1000.0, max_dark=14)
+
+        # Present
+        screen.fill((0, 0, 0))
+        screen.blit(post, (0, y_jit))
+        pygame.display.flip()
+
+        # Save for next-frame persistence
+        last_frame = post
 
 
         #============== CRT EFFECTS APPLICATION ===================

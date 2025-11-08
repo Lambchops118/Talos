@@ -74,7 +74,7 @@ class WireframeRenderer:
         self.near = near
         self.far = far
         self.bg = (0, 15, 0) #background color
-        self.fg = (0, 255, 0)  #foreground (object) color
+        self.fg = (0, 255, 100)  #foreground (object) color
         self.line_width = 2
 
     def _viewport(self, w, h):
