@@ -217,9 +217,11 @@ def run_voice_recognition(processing_queue): #Sets up background listening in a 
     print("Microphone initialized.")
     with mic as source:
         r.adjust_for_ambient_noise(source, duration=0.5) # adjust for ambient noise for 0.5 seconds
-        r.dynamic_energy_threshold = False
+        r.dynamic_energy_threshold = True
+        #r.pause_threshoold         = 1
+        #r.non_speaking_duration    = 0.8
         # Optionally tune:
-        r.energy_threshold = 300  # adjust empirically. At this point it has calibrated for ambient noise.
+        #r.energy_threshold = 300  # adjust empirically. At this point it has calibrated for ambient noise.
         print("Adjusted for ambient noise.")
 
     def callback_wrapper(recognizer, audio_data): #Provide a lambda so we can pass processing_queue into the callback
