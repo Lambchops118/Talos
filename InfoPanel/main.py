@@ -375,10 +375,9 @@ def draw_scanlines(screen, screen_width, screen_height):
 
 def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
     # Example time & date
-    time_readable = time.strftime("%#I:%M %p")
-    #date_readable = time.strftime("%Y-%m-%d")
+    time_readable = time.strftime("%A %#I:%M %p")
     date_readable = time.strftime("%B %#d, %Y")
-    weekday       = time.strftime("%A")
+    #weekday       = time.strftime("%A")
 
     is_discord_online = True
     is_server_online = False
@@ -414,7 +413,7 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
     # Text
     draw_text_centered(time_readable,   base_w/2, base_h/2.3, color, 56)
     draw_text_centered(date_readable,   base_w/2, base_h/2.1, color, 56)
-    draw_text_centered(weekday,         base_w/2, base_h/2+25, color, 56)
+    #draw_text_centered(weekday,         base_w/2, base_h/2+25, color, 56)
     draw_text_centered("Monkey Butler", base_w/2, base_h/14,  color, 80)
 
     # Gears
@@ -481,10 +480,10 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
     #========================================================================================
 
     #Code for 3d wireframe panel
-    panel_rect = (screen_width - 900 , 300, 340, 260) # x, y, w, h
-    renderer = vec3d.WireframeRenderer(panel_rect, fov=55, near=0.1, far=50) 
-    mesh = vec3d.cube_mesh(size=0.7) # Create a cube mesh
-    angle = 180.0 # Rotation angle for animation
+    #panel_rect = (screen_width - 900 , 300, 340, 260) # x, y, w, h
+    #renderer = vec3d.WireframeRenderer(panel_rect, fov=55, near=0.1, far=50) 
+    #mesh = vec3d.cube_mesh(size=0.7) # Create a cube mesh
+    #angle = 180.0 # Rotation angle for animation
 
     # A small helper to draw text on screen (top-left)
     # This can be improved. Why do we need a function specifically for top left?
@@ -504,9 +503,9 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
             target.blit(surface, (tx, ty))
         return surface
 
-    character = objl.load_obj_wire( "InfoPanel/butlerv3.obj", keep_edges="feature", # try "boundary" or "all" 
-                                       feature_angle_deg=50.00, # larger -> fewer, sharper edges kept
-                                         target_radius=0.8 )
+    #character = objl.load_obj_wire( "InfoPanel/butlerv3.obj", keep_edges="feature", # try "boundary" or "all" 
+    #                                   feature_angle_deg=50.00, # larger -> fewer, sharper edges kept
+    #                                     target_radius=0.8 )
 
     while running: # [][]][][][][][][][][][][][][][][][][]MAIN LOOP[][][][][][][][][][][][][][][][][]
         # --- EVENT HANDLING ---
@@ -546,16 +545,16 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         draw_text_topleft(f"Last response: {last_response}", 50, 1350, color, 36, target=framebuffer)
 
 
-        renderer.draw(
-            framebuffer,
-            character,
-            model_pos     = (0.0, -0.1, 3.2),
-            model_rot     = (0, angle*0.9, 0),
-            model_scale   = 3.5,
-            camera_pos    = (0, 0, 0),
-            camera_target = (0, 0, 1),
-            zsort         = True
-        )
+        # renderer.draw(
+        #     framebuffer,
+        #     character,
+        #     model_pos     = (0.0, -0.1, 3.2),
+        #     model_rot     = (0, angle*0.9, 0),
+        #     model_scale   = 3.5,
+        #     camera_pos    = (0, 0, 0),
+        #     camera_target = (0, 0, 1),
+        #     zsort         = True
+        # )
 
         # === POST FX on a copy (so we can reuse framebuffer if needed) ===
         post = framebuffer.copy()
@@ -570,7 +569,7 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
 
         clock.tick(60)
         circle_time += 1
-        angle += 0.01
+        #angle += 0.01
 
         
 
