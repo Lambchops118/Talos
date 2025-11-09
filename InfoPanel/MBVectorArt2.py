@@ -9,12 +9,18 @@ def draw_monkey_butler_head(screen, dx, dy, scale_x, scale_y, color):
     screen_height = screen.get_height()
 
     def t(ax, ay):
-        scaled_x = int(ax * scale_x)
-        scaled_y = int(ay * scale_y)
+        scaled_x = int(ax * scale_x - 200)
+        scaled_y = int(ay * scale_y - 145)
         real_x   = dx + scaled_x
         real_y   = screen_height - (dy + scaled_y)
         return (real_x, real_y)
     
+    #def scale_radius(radius, scale_x, scale_y):
+        #initial_x = 3840
+        #initial_y = 2160
+
+
+
     c = color
     color_black = (0, 0, 0)
 
@@ -81,15 +87,15 @@ def draw_monkey_butler_head(screen, dx, dy, scale_x, scale_y, color):
     pygame.draw.line(screen, c, t(535, 430), t(480, 425), width=1)
 
     # GLASSES
-    pygame.draw.circle(screen, c, t(430, 335), 36, width=1)
-    pygame.draw.circle(screen, c, t(530, 335), 36, width=1)
+    pygame.draw.circle(screen, c, t(430, 335), 36*scale_x, width=1)
+    pygame.draw.circle(screen, c, t(530, 335), 36*scale_x, width=1)
     pygame.draw.line(screen, c, t(430, 335), t(530, 335), width=1)
     pygame.draw.line(screen, c, t(430, 325), t(365, 340), width=1)
     pygame.draw.line(screen, c, t(530, 325), t(595, 340), width=1)
 
     # Fill with black circles
-    pygame.draw.circle(screen, color_black, t(430, 335), 35)
-    pygame.draw.circle(screen, color_black, t(530, 335), 35)
+    pygame.draw.circle(screen, color_black, t(430, 335), 35*scale_x)
+    pygame.draw.circle(screen, color_black, t(530, 335), 35*scale_x)
 
     # Left lens lines
     pygame.draw.line(screen, c, t(405, 350), t(430, 350), width=1)
