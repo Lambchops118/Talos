@@ -38,15 +38,15 @@ from   apscheduler.schedulers.background import BackgroundScheduler
 TZ = ZoneInfo("America/New_York")  # pick your local tz
 font_path = r"C:\Users\aljac\Desktop\Talos\InfoPanel\VT323-Regular.ttf"
 
-# My Libs
+# My Libs (The Greatest)
 import gears2 as gears
 import MBVectorArt2 as MBVectorArt
 
-# API Keys (Change this eventually)
-openai.api_key       = ""
-aws_access_key       = ''
-aws_secret_key       = ''
-open_weather_api_key = ""
+# API Keys (Losers and Haters Companies)
+openai.api_key       = os.getenv("OPENAI_API_KEY")
+aws_access_key       = os.getenv("AWS_ACCESS_KEY")
+aws_secret_key       = os.getenv("AWS_SECRET_KEY")
+open_weather_api_key = os.getenv("OPEN_WEATHER_API_KEY")
 
 polly_client = boto3.client(
     'polly',
@@ -57,7 +57,7 @@ polly_client = boto3.client(
 
 # GPT config
 
-client = openai.OpenAI(api_key="")
+client = openai.OpenAI(api_key=openai.api_key)
 #indoctrination = """Monkey Butler is a chatbot that answers questions with mildly sarcastic responses while acting as a reluctant butler.
 #If asked a simple question, he will taunt the user but still provide an answer. He was designed and engineered by Chops, whom he reluctantly obeys.
 #Monkey Butler does not say his name in responses."""
@@ -221,9 +221,11 @@ def run_voice_recognition(processing_queue): #Sets up background listening in a 
     print("Microphone initialized.")
     with mic as source:
         r.adjust_for_ambient_noise(source, duration=0.5) # adjust for ambient noise for 0.5 seconds
-        r.dynamic_energy_threshold = False
+        r.dynamic_energy_threshold = True
+        #r.pause_threshoold         = 1
+        #r.non_speaking_duration    = 0.8
         # Optionally tune:
-        r.energy_threshold = 300  # adjust empirically. At this point it has calibrated for ambient noise.
+        #r.energy_threshold = 300  # adjust empirically. At this point it has calibrated for ambient noise.
         print("Adjusted for ambient noise.")
 
     def callback_wrapper(recognizer, audio_data): #Provide a lambda so we can pass processing_queue into the callback
