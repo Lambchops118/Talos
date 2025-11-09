@@ -30,11 +30,8 @@ import paho.mqtt.client as mqtt
 from screen_effects import GpuCRT 
 import obj_wireframe_loader as objl
 from   datetime import datetime, date
-<<<<<<< HEAD
 import moving_vector_portrait as vec3d
-=======
 from dotenv import load_dotenv; load_dotenv()
->>>>>>> origin/main
 from   apscheduler.triggers.cron import CronTrigger
 from   concurrent.futures import ThreadPoolExecutor
 from   apscheduler.schedulers.background import BackgroundScheduler
@@ -376,13 +373,9 @@ def draw_monkey_butler_head(screen, base_x, base_y, scale_x, scale_y, color_):
     MBVectorArt.draw_monkey_butler_head(screen, base_x, base_y, scale_x, scale_y, color_)
 
 def draw_scanlines(screen, screen_width, screen_height):
-<<<<<<< HEAD
     for y in range(0, screen_height, 2): # every 4 pixels
         pygame.draw.line(screen, (0, 0, 0), (0, y), (8000, y), 1) # black line, 2 pixels thick
-=======
-    for y in range(0, screen_width, 4):
-        pygame.draw.line(screen, (0, 0, 0), (0, y), (8000, y), 2)
->>>>>>> origin/main
+
 
 def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
     # Example time & date
@@ -540,16 +533,10 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
                     last_command  = msg[1]
                     last_response = msg[2]
 
-<<<<<<< HEAD
         # --- RENDER THE FRAME --- 
         framebuffer.fill((0, 1, 0))  # draw to off-screen
         # replace every 'screen' draw call with 'framebuffer' for your content:
         static_drawings(framebuffer, base_w, base_h, scale_x, scale_y, circle_time)
-=======
-        # --- RENDER THE FRAME ---
-        screen.fill((0, 25, 0))
-        static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time)
->>>>>>> origin/main
 
         # ... monkey head, text, 3D render, etc ...
         second = int(time.strftime("%S"))
@@ -561,7 +548,6 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         draw_text_topleft(f"Last command:  {last_command}",  50, 1300, color, 36, target=framebuffer)
         draw_text_topleft(f"Last response: {last_response}", 50, 1350, color, 36, target=framebuffer)
 
-<<<<<<< HEAD
 
         # renderer.draw(
         #     framebuffer,
@@ -590,13 +576,6 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         #angle += 0.01
 
         
-=======
-        draw_scanlines(screen, screen_width, screen_height)
-
-        pygame.display.flip()
-        clock.tick(30)
-        circle_time += 1         
->>>>>>> origin/main
 
     pygame.quit()
     sys.exit()
