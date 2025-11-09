@@ -36,6 +36,7 @@ from   concurrent.futures import ThreadPoolExecutor
 from   apscheduler.schedulers.background import BackgroundScheduler
 
 TZ = ZoneInfo("America/New_York")  # pick your local tz
+font_path = r"C:\Users\aljac\Desktop\Talos\InfoPanel\VT323-Regular.ttf"
 
 # My Libs
 import gears2 as gears
@@ -372,21 +373,16 @@ def draw_scanlines(screen, screen_width, screen_height):
     for y in range(0, screen_height, 2): # every 4 pixels
         pygame.draw.line(screen, (0, 0, 0), (0, y), (8000, y), 1) # black line, 2 pixels thick
 
-#===================================================================================================
-
-
-#=====================================================================================================
-
 def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
     # Example time & date
-    time_readable = time.strftime("%H:%M:%S")
-    date_readable = time.strftime("%Y-%m-%d")
+    time_readable = time.strftime("%#I:%M %p")
+    #date_readable = time.strftime("%Y-%m-%d")
+    date_readable = time.strftime("%B %#d, %Y")
     weekday       = time.strftime("%A")
 
     is_discord_online = True
     is_server_online = False
 
-    font_path = r"C:\Users\aljac\Desktop\Talos\InfoPanel\VT323-Regular.ttf"
 
     def draw_text_centered(text, bx, by, color_, size=30):
         font_scaled = pygame.font.Font(font_path, int(size*((scale_x+scale_y)/2)))
@@ -492,7 +488,6 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
 
     # A small helper to draw text on screen (top-left)
     # This can be improved. Why do we need a function specifically for top left?
-    font_path = r"C:\Users\aljac\Desktop\Talos\InfoPanel\VT323-Regular.ttf" 
     # def draw_text_topleft(txt, x, y, color_=(255,255,255), size=30):
     #     font_scaled = pygame.font.Font(font_path, int(size*((scale_x+scale_y)/2)))
     #     surface     = font_scaled.render(txt, True, color_)
@@ -508,8 +503,6 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         else:
             target.blit(surface, (tx, ty))
         return surface
-
-    last_motd = None
 
     character = objl.load_obj_wire( "InfoPanel/butlerv3.obj", keep_edges="feature", # try "boundary" or "all" 
                                        feature_angle_deg=50.00, # larger -> fewer, sharper edges kept
@@ -566,31 +559,15 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
 
         # === POST FX on a copy (so we can reuse framebuffer if needed) ===
         post = framebuffer.copy()
-
-        
-        #warped = fx.warp_crt(framebuffer)
-        #post.blit(warped,(0,0))
-
-        
-
         fx.add_bloom(post, strength=1, down=0.45)
         #post = fx.apply_persistence(last_frame, post, alpha=80)
-        #post.blit(grille_surf,   (0, 0))
-        
+        post.blit(grille_surf,   (0, 0))
         post.blit(vignette_surf, (0, 0))
-        y_jit = fx.random_vertical_jitter_y(100)
-        
-
-        # Present
-        #screen.fill((0, 0, 0))
-        screen.blit(post, (0, y_jit))
-
+        screen.blit(post, (0, fx.random_vertical_jitter_y(100)))
         post.blit(scanlines_surf,(0, 0))
         crt.draw_surface(post)
-        #pygame.display.flip()
         #last_frame = post
 
-        
         clock.tick(60)
         circle_time += 1
         angle += 0.01

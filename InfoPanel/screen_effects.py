@@ -134,6 +134,7 @@ def barrel_warp_strips(src, k=0.08, strips=120):
     dst     = pygame.Surface((w, h), pygame.SRCALPHA).convert_alpha()
     strip_w = max(1, w // strips)
     cx      = w / 2.0
+
     for i in range(strips):
         x0  = i * strip_w
         x1  = w if i == strips - 1 else (i + 1) * strip_w
@@ -172,12 +173,7 @@ def random_vertical_jitter_y(max_px=90):
     else:
         return 0
 
-
-
-
-
-
-#BARREL DISTORTION============================================================================================
+#OLD BARREL DISTORTION -- USES CPU PRECOMPUTE + NN SAMPLING==================================
 
 def precompute_map(w, h, kx=0.12, ky=0.12):
     # normalized pixel centers in [-1, 1]
@@ -248,7 +244,7 @@ def warp_crt(src_surf):
 
 #game_surf = pygame.Surface((GAME_W, GAME_H))
 
-# ================GPU BARREL WARP (unused)===========================================
+# ================GPU BARREL WARP ===========================================
 class GpuCRT:
     def __init__(self, window_size=(GAME_W, GAME_H),
                  kx=1, ky=1, scan=1, vign=10, gamma=20.0, curv=1):
