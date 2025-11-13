@@ -6,6 +6,12 @@
 #BUGS AND TO DO
  # - Make sure multiple commands in quick succession are handled properly.
  # - See if openai api call code can be cleaned up further.
+ # - fix plant watering functions
+
+ # - implement morning routine.
+ # - implement openai continuous chats
+ # - make prompt better
+ # - 
 
 # Python Libs
 import queue

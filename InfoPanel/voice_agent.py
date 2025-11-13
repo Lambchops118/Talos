@@ -13,10 +13,10 @@ from   concurrent.futures import ThreadPoolExecutor
 import tasks
 
 # =============== VOICE AGENT SETUP ===============
-r         = sr.Recognizer()
-WAKE_WORD = "butler"
+r               = sr.Recognizer()
+WAKE_WORD       = "butler"
 audio_interface = pyaudio.PyAudio()
-last_motd = None
+last_motd       = None
 
 openai.api_key       = os.getenv("OPENAI_API_KEY")
 aws_access_key       = os.getenv("AWS_ACCESS_KEY")
