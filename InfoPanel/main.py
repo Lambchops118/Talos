@@ -119,8 +119,8 @@ def water_plants(pot_number):
     BROKER        = "192.168.1.160"
     PORT          = 1883
     TOPIC_PREFIX  = "quad_pump"
-    topic         = f"{TOPIC_PREFIX}/19"
-    message       = "1"
+    topic         = f"{TOPIC_PREFIX}/{pot_number}"
+    message       = b"1"
 
     client = mqtt.Client()
     client.connect(BROKER, PORT, keepalive=60)
