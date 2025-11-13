@@ -64,7 +64,11 @@ def get_weather():
 def get_time():
     None
 
+def search_web(query):
+    None
 
+def print_directions():
+    None
 
 def water_plants(pot_number):
     print("THIS IS THE PLACEHOLDER FOR WATERING PLANTS" + str(pot_number))
