@@ -69,6 +69,21 @@ functions = [
             "required": ["room"]
         }
     }
+
+    {
+        "name": "morning_motd",
+        "description": "Turn on the lights in a specific room.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "room": {
+                    "type": "string",
+                    "description": "The room where the lights should be turned on."
+                }
+            },
+            "required": ["room"]
+        }
+    }
 ]
 
 # =============== FUNCTIONS ========================================================================================
