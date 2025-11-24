@@ -38,10 +38,52 @@ functions = [
             },
             "required": ["room"]
         }
+    },
+
+    {
+        "name": "morning_motd",
+        "description": "Turn on the lights in a specific room.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "room": {
+                    "type": "string",
+                    "description": "The room where the lights should be turned on."
+                }
+            },
+            "required": ["room"]
+        }
+    }
+
+    {
+        "name": "morning_motd",
+        "description": "Turn on the lights in a specific room.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "room": {
+                    "type": "string",
+                    "description": "The room where the lights should be turned on."
+                }
+            },
+            "required": ["room"]
+        }
     }
 ]
 
 # =============== FUNCTIONS ========================================================================================
+
+def get_weather():
+    None
+
+def get_time():
+    None
+
+def search_web(query):
+    None
+
+def print_directions():
+    None
 
 def water_plants(pot_number):
     print("THIS IS THE PLACEHOLDER FOR WATERING PLANTS" + str(pot_number))
@@ -69,8 +111,12 @@ def turn_on_lights(room):
 def daily_forecast_job(gui_queue): # We can probably replace qui_queue with processing_queue if we want TTS playback too.
     today = datetime.now(TZ).strftime("%Y-%m-%d")
     msg   = f"Forecast for {today}: (placeholder) sunny with a chance of bananas."
+
+
     print(msg)
     gui_queue.put(("VOICE_CMD", "daily forecast", msg)) #Bypass pygame in this thread and send to GUI via already established queue. 
+
+
 
 #define jobs here
 
@@ -85,7 +131,7 @@ def start_scheduler(gui_queue):
     )
     scheduler.add_job(
         daily_forecast_job,
-        trigger  = CronTrigger(hour=20, minute=11), # Daily at 7:30 AM
+        trigger  = CronTrigger(hour=20, minute=36), # Daily at 7:30 AM
         args     = [gui_queue],
         id       = "daily_forecast",
         replace_existing = True,
