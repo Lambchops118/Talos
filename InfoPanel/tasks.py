@@ -5,19 +5,20 @@ from   apscheduler.triggers.cron import CronTrigger
 from   apscheduler.schedulers.background import BackgroundScheduler
 
 TZ = ZoneInfo("America/New_York")  # pick your local tz
-
+BROKER = "192.168.1.160"
+PORT   = 1883
 
 # =============== FUNCTION DICTIONARY ====================
 functions = [
     {
         "name": "water_plants",
-        "description": "Water the plants in the house.",
+        "description": "Send a signal to the pump circuit to water either pot 1 (monstera), or pot 2 (Dusty Miller, Trailing red, and Senaw)",
         "parameters": {
             "type": "object",
             "properties": {
                 "pot_number": {
-                    "type": "integer",
-                    "description": "The number of the pot to water."
+                    "type": "number",
+                    "description": "The pot number to water (1 or 2)."
                 }
 
             },
@@ -54,36 +55,6 @@ functions = [
             "required": ["room"]
         }
     }
-
-    {
-        "name": "morning_motd",
-        "description": "Turn on the lights in a specific room.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "room": {
-                    "type": "string",
-                    "description": "The room where the lights should be turned on."
-                }
-            },
-            "required": ["room"]
-        }
-    }
-
-    {
-        "name": "morning_motd",
-        "description": "Turn on the lights in a specific room.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "room": {
-                    "type": "string",
-                    "description": "The room where the lights should be turned on."
-                }
-            },
-            "required": ["room"]
-        }
-    }
 ]
 
 # =============== FUNCTIONS ========================================================================================
@@ -102,19 +73,22 @@ def print_directions():
 
 def water_plants(pot_number):
     print("THIS IS THE PLACEHOLDER FOR WATERING PLANTS" + str(pot_number))
-
-    BROKER        = "192.168.1.160"
-    PORT          = 1883
     TOPIC_PREFIX  = "quad_pump"
-    topic         = f"{TOPIC_PREFIX}/19"
-    message       = "1"
 
-    client = mqtt.Client()
+    if pot_number   == 1:
+        topic = f"{TOPIC_PREFIX}/17"
+    elif pot_number == 2:
+        topic = f"{TOPIC_PREFIX}/19"
+    else:
+        raise ValueError("pot_number must be 1 or 2")
+
+    message = "1"
+    client  = mqtt.Client()
     client.connect(BROKER, PORT, keepalive=60)
     client.publish(topic, message)
     client.disconnect()
 
-    return f"Watering pot number {pot_number}."
+    return f"Watering {pot_number}."
 
 def turn_on_lights(room):
     print("THIS IS THE PLACEHOLDER FOR TURNING ON LIGHTS IN " + room)

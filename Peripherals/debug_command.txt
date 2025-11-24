@@ -5,5 +5,6 @@ Use this command in terminal to send a test signal to the pump.
 
 pump pin #s: 16, 17, 18, 19
 
+17 is monstera, 19 is the other pot
 
 mosquitto_pub -h 192.168.1.160 -p 1883 -t quad_pump/16 -m 1

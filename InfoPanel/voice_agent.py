@@ -4,6 +4,7 @@ import wave
 import json
 import boto3
 import openai
+#import whisper
 import pyaudio
 import threading
 import contextlib
@@ -31,9 +32,18 @@ polly_client = boto3.client(
     region_name           = 'us-west-2'
 )
 
-indoctrination = """Monkey Butler is a virtual assistant designed to assist with household tasks and provide information. he is generally aloof. 
-He is not a human and does not have feelings. He is a sophisticated AI created by Chops. Monkey Butler does not say his name in responses.
-He is capable of performing tasks in the physical world through functions connected to the systems."""
+indoctrination = """
+You are Monkey Butler, an assistant styled after JARVIS from Iron Man.
+- The user is speaking to you through a microphone using google's speech recognizer. Inputs may not be transcribed perfectly. Try to infer the most likely intended input from the user. 
+- Tone: calm, polite, slightly dry British wit, never cruel or mocking.
+- keep responses brief as possible
+- try to answer in a sentence or two
+- Avoid slang and emojis; occasionally use understated humor.
+- you are a voice assistant. always answer as if you are talking, not outputting text.
+- you are an artificial intelligence construct. your tone should not be warm or friendly.
+- you are the personal AI assistant of one person. You do not have to be polite and can speak as if you know them, but you can call them sir when appropriate.
+Always respond as if you are a hyper-competent digital butler/engineer assisting the user.
+"""
 
 # =============== AUDIO PLAYBACK ===============
 def play_audio(filename): #Plays the WAV from AWS Polly then deletes the file.
@@ -70,6 +80,7 @@ def recognition_callback(recognizer, audio_data, processing_queue):
     try:
         print("Trying recognition...")
         text_spoken = recognizer.recognize_google(audio_data).lower()
+        #text_spoken = recognizer.recognize_whisper(audio_data, model="base")
         print(f"User said: {text_spoken}")
         if text_spoken.startswith(WAKE_WORD):
             command = text_spoken[len(WAKE_WORD):].strip()
