@@ -24,7 +24,7 @@ aws_access_key       = os.getenv("AWS_ACCESS_KEY")
 aws_secret_key       = os.getenv("AWS_SECRET_KEY")
 open_weather_api_key = os.getenv("OPEN_WEATHER_API_KEY")
 
-client       = openai.OpenAI(api_key=openai.api_key)
+#client       = openai.OpenAI(api_key=openai.api_key)
 polly_client = boto3.client(
     'polly',
     aws_access_key_id     = aws_access_key,

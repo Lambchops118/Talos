@@ -56,7 +56,7 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
     #weekday       = time.strftime("%A")
 
     is_discord_online = True
-    is_server_online = False
+    is_server_online = True
 
 
     def draw_text_centered(text, bx, by, color_, size=30):
@@ -68,7 +68,7 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
         draw_y      = int(by*scale_y - text_height/2)
         screen.blit(surface, (draw_x, draw_y))
 
-    # Rectangle
+    # Portrait Rectangle 
     rect_base_x = base_w / 2
     rect_base_y = base_h / 3.75
     rect_base_w = 415
@@ -86,6 +86,32 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
         width=5
     )
 
+    # Chat Box Rectangle
+    chat_rect_base_x, chat_rect_base_y = base_w/3.15, base_h/1.775
+    chat_rect_base_w, chat_rect_base_h = 1500, 150
+    chat_scaled_rect_x, chat_scaled_rect_y = int(chat_rect_base_x*scale_x - (chat_rect_base_w*scale_x)/2), int(chat_rect_base_y*scale_y - (chat_rect_base_h*scale_y)/2)
+    chat_scaled_rect_w, chat_scaled_rect_h = int(chat_rect_base_w*scale_x), int(chat_rect_base_h*scale_y)
+
+    pygame.draw.rect(
+        screen,
+        color,
+        pygame.Rect(chat_scaled_rect_x, chat_scaled_rect_y, chat_scaled_rect_w, chat_scaled_rect_h),
+        width=1
+    )
+
+    #Chat Response Rectangle
+    r_chat_rect_base_x, r_chat_rect_base_y = base_w/3.15, base_h/1.28
+    r_chat_rect_base_w, r_chat_rect_base_h = 1500, 450
+    r_chat_scaled_rect_x, r_chat_scaled_rect_y = int(r_chat_rect_base_x*scale_x - (r_chat_rect_base_w*scale_x)/2), int(r_chat_rect_base_y*scale_y - (r_chat_rect_base_h*scale_y)/2)
+    r_chat_scaled_rect_w, r_chat_scaled_rect_h = int(r_chat_rect_base_w*scale_x), int(r_chat_rect_base_h*scale_y)
+
+    pygame.draw.rect(
+        screen,
+        color,
+        pygame.Rect(r_chat_scaled_rect_x, r_chat_scaled_rect_y, r_chat_scaled_rect_w, r_chat_scaled_rect_h),
+        width=1
+    )
+
     # Text
     draw_text_centered(time_readable,   base_w/2, base_h/2.3, color, 56)
     draw_text_centered(date_readable,   base_w/2, base_h/2.1, color, 56)
@@ -93,17 +119,24 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
     draw_text_centered("Monkey Butler", base_w/2, base_h/14,  color, 80)
 
     # Gears
-    if is_server_online:
-        degrees = circle_time * 2
-        gear_place(screen, degrees, color, 125, 125, scale_x, scale_y, target=screen)
-    else:
-        gear_place(screen, 0, color_offline, 125, 125, scale_x, scale_y)
+    #if is_server_online:
+    #    degrees = circle_time * 4
+    #    gear_place(screen, degrees, color, 1625, 275, scale_x, scale_y)
+    #else:
+    #    gear_place(screen, 0, color_offline, 1625, 275, scale_x, scale_y)
 
-    if is_discord_online:
-        degrees = circle_time * 2
-        gear_place(screen, degrees, color, 350, 125, scale_x, scale_y)
-    else:
-        gear_place(screen, 0, color_offline, 350, 125, scale_x, scale_y)
+    #if is_discord_online:
+    #    degrees = circle_time * 4
+    #    gear_place(screen, degrees, color, 1850, 275, scale_x, scale_y)
+    #else:
+    #    gear_place(screen, 0, color_offline, 1850, 275, scale_x, scale_y)
+
+    # Unused Gears
+    #gear_place(screen, degrees, color, 2075, 275, scale_x, scale_y)
+
+    #gear_place(screen, degrees, color, 1625, 500, scale_x, scale_y)
+    #gear_place(screen, degrees, color, 1850, 500, scale_x, scale_y)
+    #gear_place(screen, degrees, color, 2075, 500, scale_x, scale_y)
 
 def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for new commands to display.
     print("Starting Pygame GUI for Info Panel...")
@@ -217,8 +250,8 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         mb_base_y = base_h / 2 + dy
 
         draw_monkey_butler_head(framebuffer, mb_base_x, mb_base_y, scale_x, scale_y, color)
-        draw_text_topleft(f"Last command:  {last_command}",  50, 1300, color, 36, target=framebuffer)
-        draw_text_topleft(f"Last response: {last_response}", 50, 1350, color, 36, target=framebuffer)
+        draw_text_topleft(f"Last command:  {last_command}",  75, 740, color, 36, target=framebuffer)
+        draw_text_topleft(f"Last response: {last_response}", 75, 900, color, 36, target=framebuffer)
 
 
         # renderer.draw(
