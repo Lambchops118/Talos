@@ -14,7 +14,6 @@ import moving_vector_portrait as vec3d
 
 font_path = r"C:\Users\aljac\Desktop\Talos\InfoPanel\VT323-Regular.ttf"
 
-
 # =============== PYGAME INFO PANEL ===============
 color         = (0, 255, 100)
 color_offline = (100, 100, 100)
@@ -112,27 +111,30 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
         width=1
     )
 
+
     # Text
     draw_text_centered(time_readable,   base_w/2, base_h/2.3, color, 56)
     draw_text_centered(date_readable,   base_w/2, base_h/2.1, color, 56)
     #draw_text_centered(weekday,         base_w/2, base_h/2+25, color, 56)
     draw_text_centered("Monkey Butler", base_w/2, base_h/14,  color, 80)
+    draw_text_centered("System Status", base_w/4, base_h/14,  color, 50)
+    draw_text_centered("Information", base_w/1.25, base_h/14,  color, 50)
 
     # Gears
-    #if is_server_online:
-    #    degrees = circle_time * 4
-    #    gear_place(screen, degrees, color, 1625, 275, scale_x, scale_y)
-    #else:
-    #    gear_place(screen, 0, color_offline, 1625, 275, scale_x, scale_y)
+    if is_server_online:
+       degrees = circle_time * 4
+       gear_place(screen, degrees, color, 275, 275, scale_x, scale_y)
+    else:
+       gear_place(screen, 0, color_offline, 275, 275, scale_x, scale_y)
 
-    #if is_discord_online:
-    #    degrees = circle_time * 4
-    #    gear_place(screen, degrees, color, 1850, 275, scale_x, scale_y)
-    #else:
-    #    gear_place(screen, 0, color_offline, 1850, 275, scale_x, scale_y)
+    if is_discord_online:
+       degrees = circle_time * 4
+       gear_place(screen, degrees, color, 540, 275, scale_x, scale_y)
+    else:
+       gear_place(screen, 0, color_offline, 540, 275, scale_x, scale_y)
 
-    # Unused Gears
-    #gear_place(screen, degrees, color, 2075, 275, scale_x, scale_y)
+    #Unused Gears
+    gear_place(screen, degrees, color, 810, 275, scale_x, scale_y)
 
     #gear_place(screen, degrees, color, 1625, 500, scale_x, scale_y)
     #gear_place(screen, degrees, color, 1850, 500, scale_x, scale_y)
@@ -170,8 +172,8 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
 
     # We'll keep track of the "last voice command" and "last GPT response"
     # so we can display them in the GUI.
-    last_command  = ""
-    last_response = ""
+    last_command  = "butler, water the monstera"
+    last_response = "of course, sir. i have activated the pump for the pot with the monstera."
 
 
     #========================================================================================
@@ -211,6 +213,51 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         else:
             target.blit(surface, (tx, ty))
         return surface
+    
+    def render_textrect(
+        text,
+        x, y,
+        width, height,
+        size,
+        color,
+        target,
+        font_path=font_path
+    ):
+        # Create font
+        font = pygame.font.Font(font_path, size)
+
+        # Word wrap text into a list of lines
+        words = text.split(" ")
+        lines = []
+        current = ""
+
+        for word in words:
+            test = current + word + " "
+            if font.size(test)[0] <= width:
+                current = test
+            else:
+                lines.append(current)
+                current = word + " "
+        lines.append(current)
+
+        # Create the text block surface
+        surf = pygame.Surface((width, height), pygame.SRCALPHA)
+
+        line_height = font.get_linesize()
+        ty = 0
+
+        for line in lines:
+            if ty + line_height > height:
+                break
+            text_surf = font.render(line, True, color)
+            surf.blit(text_surf, (0, ty))
+            ty += line_height
+
+        # Blit to target surface at (x, y)
+        target.blit(surf, (x, y))
+
+        return surf
+
 
     #character = objl.load_obj_wire( "InfoPanel/butlerv3.obj", keep_edges="feature", # try "boundary" or "all" 
     #                                   feature_angle_deg=50.00, # larger -> fewer, sharper edges kept
@@ -250,10 +297,48 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         mb_base_y = base_h / 2 + dy
 
         draw_monkey_butler_head(framebuffer, mb_base_x, mb_base_y, scale_x, scale_y, color)
-        draw_text_topleft(f"Last command:  {last_command}",  75, 740, color, 36, target=framebuffer)
-        draw_text_topleft(f"Last response: {last_response}", 75, 900, color, 36, target=framebuffer)
+        #draw_text_topleft(f"Last command:  {last_command}",  75, 740, color, 36, target=framebuffer)
+        #draw_text_topleft(f"Last response: {last_response}", 75, 900, color, 36, target=framebuffer)
 
+        #def render_textrect(text, font, rect, x, y, color_=(255,255,255), size=30, target=None):
+        #font_scaled = pygame.font.Font(font_path, int(size*((scale_x+scale_y)/2)))
 
+        #Chat Response Rectangle
+
+        #font_scaled = pygame.font.Sys(font_path, int(30*((scale_x+scale_y)/2)))
+        font_scaled = pygame.font.Font(font_path, int(30 * ((scale_x + scale_y) / 2)))
+
+        r_chat_rect_base_x, r_chat_rect_base_y = base_w/3.15, base_h/1.28
+        r_chat_rect_base_w, r_chat_rect_base_h = 1500, 450
+        r_chat_scaled_rect_x, r_chat_scaled_rect_y = int(r_chat_rect_base_x*scale_x - (r_chat_rect_base_w*scale_x)/2), int(r_chat_rect_base_y*scale_y - (r_chat_rect_base_h*scale_y)/2)
+        r_chat_scaled_rect_w, r_chat_scaled_rect_h = int(r_chat_rect_base_w*scale_x), int(r_chat_rect_base_h*scale_y)
+        wrap_rect = pygame.Rect(r_chat_scaled_rect_x, r_chat_scaled_rect_y, r_chat_scaled_rect_w, r_chat_scaled_rect_h)
+
+        #render_textrect(f"Last command:  {last_command}",  font_scaled, wrap_rect, 75, 740, color, 36, target=framebuffer)
+        #render_textrect(f"Last response: {last_response}", font_scaled, wrap_rect, 75, 900, color, 36, target=framebuffer)
+       
+
+        render_textrect(
+            f"LAST COMMAND:  {last_command}",
+            x = 65,
+            y = 550,
+            width  = 1125,
+            height = 200,
+            size   = 30,
+            color  = color,
+            target = framebuffer
+        )
+
+        render_textrect(
+            f"LAST RESPONSE:  {last_response}",
+            x = 65,
+            y = 675,
+            width  = 1125,
+            height = 300,
+            size   = 30,
+            color  = color,
+            target = framebuffer
+        )
         # renderer.draw(
         #     framebuffer,
         #     character,

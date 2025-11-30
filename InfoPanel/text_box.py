@@ -35,27 +35,27 @@ def render_textrect(text, font, rect, text_color, bg_color=None):
     return surface
 
 
-# pygame.init()
-# screen = pygame.display.set_mode((640, 480))
-# font = pygame.font.SysFont(None, 24)
+pygame.init()
+screen = pygame.display.set_mode((640, 480))
+font = pygame.font.SysFont(None, 24)
 
-# text = "This is a long block of text that should wrap automatically inside the rectangle."
+text = " words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words  "
 
-# textbox_rect = pygame.Rect(50, 50, 300, 150)
+textbox_rect = pygame.Rect(50, 50, 300, 150)
 
-# running = True
-# while running:
-#     for event in pygame.event.get():
-#         if event.type == pygame.QUIT:
-#             running = False
+running = True
+while running:
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
 
-#     screen.fill((30, 30, 30))
+    screen.fill((30, 30, 30))
 
-#     text_surface = render_textrect(
-#         text, font, textbox_rect,
-#         (255, 255, 255),      # text color
-#         (50, 50, 50)          # background
-#     )
-#     screen.blit(text_surface, textbox_rect.topleft)
+    text_surface = render_textrect(
+        text, font, textbox_rect,
+        (255, 255, 255),      # text color
+        (50, 50, 50)          # background
+    )
+    screen.blit(text_surface, textbox_rect.topleft)
 
-#     pygame.display.update()
+    pygame.display.update()
