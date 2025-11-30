@@ -117,24 +117,27 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
     draw_text_centered(date_readable,   base_w/2, base_h/2.1, color, 56)
     #draw_text_centered(weekday,         base_w/2, base_h/2+25, color, 56)
     draw_text_centered("Monkey Butler", base_w/2, base_h/14,  color, 80)
-    draw_text_centered("System Status", base_w/4, base_h/14,  color, 50)
-    draw_text_centered("Information", base_w/1.25, base_h/14,  color, 50)
+    draw_text_centered("Information", base_w/4, base_h/14,  color, 50)
+    draw_text_centered("Systems Status", base_w/1.25, base_h/14,  color, 50)
+    draw_text_centered("Chopscorp. Ltd. c 1977", base_w-180, base_h-75,  color, 30)
 
     # Gears
     if is_server_online:
        degrees = circle_time * 4
-       gear_place(screen, degrees, color, 275, 275, scale_x, scale_y)
+       gear_place(screen, degrees, color, 1700, 250, scale_x, scale_y)
     else:
-       gear_place(screen, 0, color_offline, 275, 275, scale_x, scale_y)
+       gear_place(screen, 0, color_offline, 1700, 250, scale_x, scale_y)
 
     if is_discord_online:
        degrees = circle_time * 4
-       gear_place(screen, degrees, color, 540, 275, scale_x, scale_y)
+       gear_place(screen, degrees, color, 1700, 475, scale_x, scale_y)
     else:
-       gear_place(screen, 0, color_offline, 540, 275, scale_x, scale_y)
+       gear_place(screen, 0, color_offline, 1700, 475, scale_x, scale_y)
 
     #Unused Gears
-    gear_place(screen, degrees, color, 810, 275, scale_x, scale_y)
+    gear_place(screen, degrees, color, 1700, 700, scale_x, scale_y)
+    gear_place(screen, degrees, color, 1700, 925, scale_x, scale_y)
+    gear_place(screen, degrees, color, 1700, 1150, scale_x, scale_y)
 
     #gear_place(screen, degrees, color, 1625, 500, scale_x, scale_y)
     #gear_place(screen, degrees, color, 1850, 500, scale_x, scale_y)
@@ -202,6 +205,8 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
     #     font_scaled = pygame.font.Font(font_path, int(size*((scale_x+scale_y)/2)))
     #     surface     = font_scaled.render(txt, True, color_)
     #     screen.blit(surface, (int(x*scale_x), int(y*scale_y)))
+
+    
 
     def draw_text_topleft(txt, x, y, color_=(255,255,255), size=30, target=None):
         font_scaled = pygame.font.Font(font_path, int(size*((scale_x+scale_y)/2)))
@@ -349,6 +354,14 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         #     camera_target = (0, 0, 1),
         #     zsort         = True
         # )
+
+
+        def draw_mouse_coordinates(surface):
+            x, y = pygame.mouse.get_pos()
+            text = font_scaled.render(f"({x}, {y})", True, (255, 255, 255))
+            surface.blit(text, (10, 10))  # Display in top-left corner
+
+        draw_mouse_coordinates(framebuffer)
 
         # === POST FX on a copy (so we can reuse framebuffer if needed) ===
         post = framebuffer.copy()
