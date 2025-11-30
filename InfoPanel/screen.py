@@ -16,8 +16,9 @@ font_path = r"C:\Users\aljac\Desktop\Talos\InfoPanel\VT323-Regular.ttf"
 
 # =============== PYGAME INFO PANEL ===============
 color         = (0, 255, 100)
-color_offline = (100, 100, 100)
+color_offline = (5, 5, 5)
 red           = (255, 0, 0)
+
 
 RESOLUTIONS = {
     "QHD"   : (2560, 1440),
@@ -48,14 +49,26 @@ def draw_scanlines(screen, screen_width, screen_height):
         pygame.draw.line(screen, (0, 0, 0), (0, y), (8000, y), 1) # black line, 2 pixels thick
 
 
+def draw_open_rect(surface, color, x, y):
+    width = 500
+    height = 105
+    line_thickness = 3
+    pygame.draw.line(surface, color, (x, y), (x + width, y), line_thickness)
+    pygame.draw.line(surface, color, (x, y + height), (x + width, y + height), line_thickness)
+    pygame.draw.line(surface, color, (x + width, y), (x + width, y + height), line_thickness)
+
+
 def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
     # Example time & date
     time_readable = time.strftime("%A %#I:%M %p")
     date_readable = time.strftime("%B %#d, %Y")
     #weekday       = time.strftime("%A")
 
-    is_discord_online = True
-    is_server_online = True
+    is_discord_online      = True
+    is_server_online       = True
+    is_placeholder1_online = False
+    is_placeholder2_online = False
+    is_placeholder3_online = False
 
 
     def draw_text_centered(text, bx, by, color_, size=30):
@@ -111,6 +124,25 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
         width=1
     )
 
+    #Information Panel
+    r_chat_rect_base_x, r_chat_rect_base_y = base_w/4.5, base_h/3.425
+    r_chat_rect_base_w, r_chat_rect_base_h = 850, 500
+    r_chat_scaled_rect_x, r_chat_scaled_rect_y = int(r_chat_rect_base_x*scale_x - (r_chat_rect_base_w*scale_x)/2), int(r_chat_rect_base_y*scale_y - (r_chat_rect_base_h*scale_y)/2)
+    r_chat_scaled_rect_w, r_chat_scaled_rect_h = int(r_chat_rect_base_w*scale_x), int(r_chat_rect_base_h*scale_y)
+
+    pygame.draw.rect(
+        screen,
+        color,
+        pygame.Rect(r_chat_scaled_rect_x, r_chat_scaled_rect_y, r_chat_scaled_rect_w, r_chat_scaled_rect_h),
+        width=3
+    )
+
+    draw_text_centered("[Weather Forecast]", base_w/4.5, (base_h/14)+150,     color, 40)
+    draw_text_centered("[Crypto Price]",     base_w/4.5, (base_h/14)+200,  color, 40)
+    draw_text_centered("[Fear Greed Index]", base_w/4.5, (base_h/14)+250,  color, 40)
+    draw_text_centered("[Something Else]",   base_w/4.5, (base_h/14)+300,  color, 40)
+
+
 
     # Text
     draw_text_centered(time_readable,   base_w/2, base_h/2.3, color, 56)
@@ -124,20 +156,50 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
     # Gears
     if is_server_online:
        degrees = circle_time * 4
+       draw_open_rect(screen, color, 1280, 135)
        gear_place(screen, degrees, color, 1700, 250, scale_x, scale_y)
     else:
+       degrees = 0
+       draw_open_rect(screen, color_offline, 1280, 135)
        gear_place(screen, 0, color_offline, 1700, 250, scale_x, scale_y)
+       
 
     if is_discord_online:
        degrees = circle_time * 4
+       draw_open_rect(screen, color, 1280, 305)
        gear_place(screen, degrees, color, 1700, 475, scale_x, scale_y)
     else:
+       degrees = 0
+       draw_open_rect(screen, color_offline, 1280, 305)
        gear_place(screen, 0, color_offline, 1700, 475, scale_x, scale_y)
 
     #Unused Gears
-    gear_place(screen, degrees, color, 1700, 700, scale_x, scale_y)
-    gear_place(screen, degrees, color, 1700, 925, scale_x, scale_y)
-    gear_place(screen, degrees, color, 1700, 1150, scale_x, scale_y)
+    if is_placeholder1_online:
+        degrees = circle_time * 4
+        gear_place(screen, degrees, color_offline, 1700, 700, scale_x, scale_y)
+        draw_open_rect(screen, color_offline, 1280, 472)
+    else:
+        degrees = 0
+        gear_place(screen, degrees, color_offline, 1700, 700, scale_x, scale_y)
+        draw_open_rect(screen, color_offline, 1280, 472)
+
+    if is_placeholder2_online:
+        degrees = circle_time * 4
+        gear_place(screen, degrees, color, 1700, 925, scale_x, scale_y)
+        draw_open_rect(screen, color, 1280, 640)
+    else:
+        degrees = 0
+        gear_place(screen, degrees, color_offline, 1700, 925, scale_x, scale_y)
+        draw_open_rect(screen, color_offline, 1280, 640)
+
+    if is_placeholder3_online:
+        degrees = circle_time * 4
+        gear_place(screen, degrees, color, 1700, 1150, scale_x, scale_y)
+        draw_open_rect(screen, color, 1280, 810)
+    else:
+        degrees = 0
+        gear_place(screen, degrees, color_offline, 1700, 1150, scale_x, scale_y)
+        draw_open_rect(screen, color_offline, 1280, 810)
 
     #gear_place(screen, degrees, color, 1625, 500, scale_x, scale_y)
     #gear_place(screen, degrees, color, 1850, 500, scale_x, scale_y)
