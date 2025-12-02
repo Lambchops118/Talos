@@ -101,6 +101,7 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
 
     
 # ========================================= Functions that run once when GUI is initialized =========================================
+
     def draw_text_topleft(txt, x, y, color_=(255,255,255), size=30, target=None):
         font_scaled = pygame.font.Font(font_path, int(size*((scale_x+scale_y)/2)))
         surface     = font_scaled.render(str(txt), True, color_).convert_alpha()
@@ -281,7 +282,7 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         draw_text_centered(time_readable,   base_w/2, base_h/2.3, color, 56)
         draw_text_centered(date_readable,   base_w/2, base_h/2.1, color, 56)
         draw_text_centered("Monkey Butler", base_w/2, base_h/14,  color, 80)
-        draw_text_centered("Information", base_w/4, base_h/14,  color, 50)
+        draw_text_centered("Information", base_w/4, base_h/14,  color,   50)
         draw_text_centered("Systems Status", base_w/1.25, base_h/14,  color, 50)
         draw_text_centered("Chopscorp. Ltd. c 1977", base_w-180, base_h-75,  color, 30)
 

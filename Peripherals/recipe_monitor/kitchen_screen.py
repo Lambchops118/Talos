@@ -7,6 +7,8 @@ import queue
 import pygame
 from   dotenv import load_dotenv; load_dotenv()
 
+import gears2 as gears
+
 font_path     = r"C:\Users\aljac\Desktop\Talos\InfoPanel\VT323-Regular.ttf"
 screen_width  = 640
 screen_height = 480
@@ -89,12 +91,28 @@ while running:
             color  = color,
             target = screen
         )
+    
+    #gears.gear_place(screen, circle_time, color, 320, 240, scale=0.75)
+    #gears.gear_place(screen, circle_time, color, 420, 340, scale=1)
+    #gears.gear_place(screen, circle_time, color, 50,  50,  scale=0.25)
+    #gears.draw_dynamo(screen, circle_time, color, 100, 100, scale=0.75)
+    gears.draw_dynamo(screen, circle_time, -400, 240, 2, color)
+    # gears.draw_dynamo(
+    #     screen,
+    #     circle_time,
+    #     center_x = 640,
+    #     center_y = 480,
+    #     scale_x  = 1,
+    #     scale_y  = 1,
+    #     color    = red
+    # )
 
     # 3. Flip/update the display
     pygame.display.flip()
 
     # 4. Cap the frame rate
     clock.tick(60)
+    circle_time += 1
 
 pygame.quit()
 sys.exit()
