@@ -2,16 +2,14 @@
 # This code will run on the raspberry pi for the kitchen recipe monitor.
 
 import sys
-import time
-import queue
 import pygame
 from   dotenv import load_dotenv; load_dotenv()
 
 import gears2 as gears
 
 font_path     = r"C:\Users\aljac\Desktop\Talos\InfoPanel\VT323-Regular.ttf"
-screen_width  = 640
-screen_height = 480
+screen_width  = 1920
+screen_height = 1080
 
 color         = (0, 255, 100) # Green Phosphor Color
 color_offline = (5, 5, 5)     # Dim Gray for offline
@@ -38,12 +36,14 @@ def draw_mouse_coordinates(surface):
     text = font.render(f"({x}, {y})", True, (255, 255, 255))
     surface.blit(text, (10, 10))  # Display in top-left corner
 
-def render_textrect(text, x, y, width, height, size, color, target, font_path=font):
+def render_textrect(text, x, y, width, height, color, target, font_path=font):
         #font    = pygame.font.Font(font_path, size) #This can probably be moved outside the function
         font_path = font
-        words   = text.split(" ")
-        lines   = []
-        current = ""
+        words    = text.split(" ")
+        lines    = []
+        current  = ""
+
+        pygame.draw.rect(target, color, (x-5, y-5, width+5, height+5), width=2)  # Clear background
 
         for word in words:
             test = current + word + " "
@@ -82,31 +82,20 @@ while running:
     draw_mouse_coordinates(screen)
 
     render_textrect(
-            f"PLACEHOLDER: . . . . . . .  . .  . . . . . . .  . . . . . . . . .  . . . . . . . . .  . . . . . . . . .  . . . . . . . . .  . . . . . . . . .  . . . . . . . . .  . . . . . . . . .  . . . . . . . . .  . . . . . . . . .  . . . . . . . . .  . . . . . . . . .  . . . . . . . . .  . . . . . . . . .  . . . . . . . . .  . . . . . . . . .  . . . . . . . . .  . . . . . . . . .  . .",
-            x      = 0,
-            y      = 00,
+            f"""PLACEHOLDER: 
+            Line 1\n
+            Line 2
+            Line 3
+            Line 4
+            Line 5""",
+            x      = 50,
+            y      = 50,
             width  = 640,
             height = 480,
-            size   = 30,
             color  = color,
             target = screen
         )
     
-    #gears.gear_place(screen, circle_time, color, 320, 240, scale=0.75)
-    #gears.gear_place(screen, circle_time, color, 420, 340, scale=1)
-    #gears.gear_place(screen, circle_time, color, 50,  50,  scale=0.25)
-    #gears.draw_dynamo(screen, circle_time, color, 100, 100, scale=0.75)
-    gears.draw_dynamo(screen, circle_time, -400, 240, 2, color)
-    # gears.draw_dynamo(
-    #     screen,
-    #     circle_time,
-    #     center_x = 640,
-    #     center_y = 480,
-    #     scale_x  = 1,
-    #     scale_y  = 1,
-    #     color    = red
-    # )
-
     # 3. Flip/update the display
     pygame.display.flip()
 

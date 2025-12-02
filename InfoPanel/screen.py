@@ -234,10 +234,10 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         date_readable = time.strftime("%B %#d, %Y")
 
         # Check systems status every tick
-        is_discord_online      = True
+        is_mqtt_broker_online  = True
         is_server_online       = True
-        is_placeholder1_online = False
-        is_placeholder2_online = False
+        is_waterer_online      = False
+        is_kitchenpanel_online = False
         is_placeholder3_online = False
 
         # Portrait Rectangle
@@ -286,8 +286,9 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         draw_text_centered("Systems Status", base_w/1.25, base_h/14,  color, 50)
         draw_text_centered("Chopscorp. Ltd. c 1977", base_w-180, base_h-75,  color, 30)
 
-        # Gears
-        if is_server_online:
+        # Dynamos for each systems status
+        #MQTT BROKER
+        if is_mqtt_broker_online:
             degrees = circle_time * 4
             draw_open_rect(screen, color, 1280, 135)
             gear_place(screen, degrees, color, 1700, 250, scale_x, scale_y)
@@ -296,7 +297,8 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
             draw_open_rect(screen, color_offline, 1280, 135)
             gear_place(screen, 0, color_offline, 1700, 250, scale_x, scale_y)
 
-        if is_discord_online:
+        #MINECRAFT SERVER
+        if is_server_online:
             degrees = circle_time * 4
             draw_open_rect(screen, color, 1280, 305)
             gear_place(screen, degrees, color, 1700, 475, scale_x, scale_y)
@@ -305,8 +307,8 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
             draw_open_rect(screen, color_offline, 1280, 305)
             gear_place(screen, 0, color_offline, 1700, 475, scale_x, scale_y)
 
-        #Unused Gears
-        if is_placeholder1_online:
+        #PLANT WATERER
+        if is_waterer_online:
             degrees = circle_time * 4
             gear_place(screen, degrees, color_offline, 1700, 700, scale_x, scale_y)
             draw_open_rect(screen, color_offline, 1280, 472)
@@ -315,7 +317,8 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
             gear_place(screen, degrees, color_offline, 1700, 700, scale_x, scale_y)
             draw_open_rect(screen, color_offline, 1280, 472)
 
-        if is_placeholder2_online:
+        #KITCHEN PANEL
+        if is_kitchenpanel_online:
             degrees = circle_time * 4
             gear_place(screen, degrees, color, 1700, 925, scale_x, scale_y)
             draw_open_rect(screen, color, 1280, 640)
@@ -324,6 +327,7 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
             gear_place(screen, degrees, color_offline, 1700, 925, scale_x, scale_y)
             draw_open_rect(screen, color_offline, 1280, 640)
 
+        #PLACEHOLDER 3
         if is_placeholder3_online:
             degrees = circle_time * 4
             gear_place(screen, degrees, color, 1700, 1150, scale_x, scale_y)
@@ -332,10 +336,6 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
             degrees = 0
             gear_place(screen, degrees, color_offline, 1700, 1150, scale_x, scale_y)
             draw_open_rect(screen, color_offline, 1280, 810)
-
-        #gear_place(screen, degrees, color, 1625, 500, scale_x, scale_y)
-        #gear_place(screen, degrees, color, 1850, 500, scale_x, scale_y)
-        #gear_place(screen, degrees, color, 2075, 500, scale_x, scale_y)
 
         second    = int(time.strftime("%S"))
         dy        = 10 if second % 2 == 0 else 0
