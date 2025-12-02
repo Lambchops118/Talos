@@ -22,6 +22,9 @@ from   dotenv import load_dotenv; load_dotenv()
 import tasks
 import voice_agent
 import screen as scrn
+import kitchen_screen
+
+fp = 0
 
 # =============== MAIN ENTRY POINT ===============
 if __name__ == "__main__":
@@ -34,7 +37,10 @@ if __name__ == "__main__":
     scheduler = tasks.start_scheduler(gui_queue)  # <-- start APScheduler
 
     try:
-        scrn.run_info_panel_gui(gui_queue) # Run pygame GUI in main thread
+        if fp == 0:
+            scrn.run_info_panel_gui(gui_queue) # Run pygame GUI in main thread
+        elif fp == 1:
+            kitchen_screen.screen_main() # Run kitchen screen app
     finally:
         if stop_listening: # Shut down background listener and command worker
             stop_listening(wait_for_stop=False)
