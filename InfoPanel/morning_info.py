@@ -53,4 +53,4 @@ def get_weather_report(api_key, city):
         
     }
 
-#print(get_weather_report(api_key, city))
+print(get_weather_report(api_key, city))

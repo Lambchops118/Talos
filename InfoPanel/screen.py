@@ -246,7 +246,7 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
 
     # We'll keep track of the "last voice command" and "last GPT response"
     # so we can display them in the GUI.
-    last_command  = "butler, water the monstera"
+    last_command  = "\"butler, water the monstera\""
     last_response = "of course, sir. i have activated the pump for the pot with the monstera."
 
 
@@ -372,7 +372,12 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         mb_base_x = base_w / 3.2
         mb_base_y = base_h / 2 + dy
 
-        draw_monkey_butler_head(framebuffer, mb_base_x, mb_base_y, scale_x, scale_y, color)
+        debug = True
+        if debug:
+            draw_monkey_butler_head(framebuffer, mb_base_x+200, mb_base_y+150, scale_x, scale_y, color)
+        else:
+            draw_monkey_butler_head(framebuffer, mb_base_x, mb_base_y, scale_x, scale_y, color)
+
         #draw_text_topleft(f"Last command:  {last_command}",  75, 740, color, 36, target=framebuffer)
         #draw_text_topleft(f"Last response: {last_response}", 75, 900, color, 36, target=framebuffer)
 
@@ -393,25 +398,30 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         #render_textrect(f"Last command:  {last_command}",  font_scaled, wrap_rect, 75, 740, color, 36, target=framebuffer)
         #render_textrect(f"Last response: {last_response}", font_scaled, wrap_rect, 75, 900, color, 36, target=framebuffer)
        
-
+        #scale_x = screen_width / base_w
+        #scale_y = screen_height / base_h
         render_textrect(
-            f"LAST COMMAND:  {last_command}",
-            x = 65,
-            y = 550,
+            f"{last_command}",
+            #x = 65  * (scale_x),
+            #y = 550 * (scale_y*2),
+            x = int(screen_width / 29.5384615),
+            y = int(screen_height / 1.96363636)+10,
             width  = 1125,
             height = 200,
-            size   = 30,
+            size   = 50,
             color  = color,
             target = framebuffer
         )
 
         render_textrect(
-            f"LAST RESPONSE:  {last_response}",
-            x = 65,
-            y = 675,
+            f"{last_response}",
+            #x = 65  * (scale_x),
+            #y = 675 * (scale_y*2),
+            x = int(screen_width / 29.5384615),
+            y = int(screen_height / 1.6)+10,
             width  = 1125,
             height = 300,
-            size   = 30,
+            size   = 50,
             color  = color,
             target = framebuffer
         )
@@ -425,14 +435,11 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         #     camera_target = (0, 0, 1),
         #     zsort         = True
         # )
-
-
-        def draw_mouse_coordinates(surface):
-            x, y = pygame.mouse.get_pos()
-            text = font_scaled.render(f"({x}, {y})", True, (255, 255, 255))
-            surface.blit(text, (10, 10))  # Display in top-left corner
-
-        draw_mouse_coordinates(framebuffer)
+        # def draw_mouse_coordinates(surface):
+        #     x, y = pygame.mouse.get_pos()
+        #     text = font_scaled.render(f"({x}, {y})", True, (255, 255, 255))
+        #     surface.blit(text, (10, 10))  # Display in top-left corner
+        # draw_mouse_coordinates(framebuffer)
 
         # === POST FX on a copy (so we can reuse framebuffer if needed) ===
         post = framebuffer.copy()
