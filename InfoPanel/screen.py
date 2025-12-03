@@ -373,7 +373,7 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         mb_base_x = base_w / 3.2
         mb_base_y = base_h / 2 + dy
 
-        debug = True
+        debug = False
         if debug:
             draw_monkey_butler_head(framebuffer, mb_base_x+200, mb_base_y+150, scale_x, scale_y, color)
         else:

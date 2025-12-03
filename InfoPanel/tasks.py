@@ -116,6 +116,7 @@ def wake_display(): #This will require a script on the PI to listen on this MQTT
     # client.publish(topic, message)
     # client.disconnect()
     tv_control.FireTvController.wake_and_wait()
+    tv_control.FireTvController.hdmi1()
 
 
 def dim_display(): #This will require a script on the PI to listen on this MQTT port and then send the CEC signal to the TV
