@@ -1,3 +1,4 @@
+import tv_control
 from datetime import datetime
 from   zoneinfo import ZoneInfo
 import paho.mqtt.client as mqtt
@@ -107,23 +108,26 @@ def daily_forecast_job(gui_queue): # We can probably replace qui_queue with proc
     
 def wake_display(): #This will require a script on the PI to listen on this MQTT port and then send the CEC signal to the TV
     print("Waking Display.")
-    TOPIC_PREFIX = "tv_display"
-    topic        = f"{TOPIC_PREFIX}/wake_status"
-    message      = "1"
-    client  = mqtt.Client()
-    client.connect(BROKER, PORT, keepalive=60)
-    client.publish(topic, message)
-    client.disconnect()
+    # TOPIC_PREFIX = "tv_display"
+    # topic        = f"{TOPIC_PREFIX}/wake_status"
+    # message      = "1"
+    # client  = mqtt.Client()
+    # client.connect(BROKER, PORT, keepalive=60)
+    # client.publish(topic, message)
+    # client.disconnect()
+    tv_control.FireTvController.wake_and_wait()
+
 
 def dim_display(): #This will require a script on the PI to listen on this MQTT port and then send the CEC signal to the TV
     print("Dimming Display.")
-    TOPIC_PREFIX = "tv_display"
-    topic        = f"{TOPIC_PREFIX}/wake_status"
-    message      = "0"
-    client  = mqtt.Client()
-    client.connect(BROKER, PORT, keepalive=60)
-    client.publish(topic, message)
-    client.disconnect()
+    # TOPIC_PREFIX = "tv_display"
+    # topic        = f"{TOPIC_PREFIX}/wake_status"
+    # message      = "0"
+    # client  = mqtt.Client()
+    # client.connect(BROKER, PORT, keepalive=60)
+    # client.publish(topic, message)
+    # client.disconnect()
+    tv_control.FireTvController.sleep()
 
 # Start the chron job scheduler
 def start_scheduler(gui_queue):
@@ -164,5 +168,5 @@ def start_scheduler(gui_queue):
     scheduler.start()
     return scheduler
 
-wake_display()
+#wake_display()
 #dim_display()

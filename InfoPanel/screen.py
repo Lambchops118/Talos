@@ -22,6 +22,7 @@ red           = (255, 0, 0)
 
 RESOLUTIONS = {
     "QHD"   : (2560, 1440),
+    #"QHD" : (1920, 1080),
     "UHD"   : (3840, 2160),
     "1080P" : (1920, 1080),
 }
@@ -230,7 +231,7 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
     base_w, base_h = parse_base_resolution()
     print(f"Using base design resolution: {base_w}x{base_h}")
 
-    screen = pygame.display.set_mode((screen_width, screen_height), pygame.FULLSCREEN)
+    screen = pygame.display.set_mode((screen_width, screen_height))#, pygame.FULLSCREEN)
     pygame.display.set_caption("Scalable Pygame Port")
 
     crt = GpuCRT(window_size=(screen_width, screen_height),
