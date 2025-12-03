@@ -1,5 +1,8 @@
 import math
 import pygame
+import text_box
+
+font_path = r"C:\Users\aljac\Desktop\Talos\InfoPanel\VT323-Regular.ttf"
 
 def draw_gear_tooth(screen, degrees, color, x, y, scale):
     radius_base = 75
@@ -52,18 +55,36 @@ def gear_place(screen, degrees, color, x, y, scale):
          draw_gear_tooth(screen, degrees - offset, color, x, y, scale)
     return radius
 
-def draw_dynamo(screen, degrees, center_x, center_y, scale, color): #Gear + Info Tab 
+def draw_dynamo(screen, degrees, color, center_x, center_y, scale, text, subtext): #Gear + Info Tab 
         #Draw Gear Part
         print("Drawing Dynamo at gear center:", center_x, center_y)
         radius = gear_place(screen, degrees, color, center_x, center_y, scale)
-        width  = int(10 * scale)
-        #Draw Info Tab Part
-        line_y_dist  = radius - (width*0.5)
-        line_length  = 500 * scale
+        width  = int(5 * scale)
 
+        #Draw Info Tab Part
+        line_y_dist  = radius - (width)
+        line_length  = 600 * scale
         pygame.draw.line(screen, color, (center_x, center_y + line_y_dist), (center_x + line_length, center_y + line_y_dist), width)
         pygame.draw.line(screen, color, (center_x, center_y - line_y_dist), (center_x + line_length, center_y - line_y_dist), width)
-        pygame.draw.line(screen, color, (center_x + line_length - (width/2), center_y + line_y_dist), (center_x + line_length-(width/2), center_y - line_y_dist), width)
-
-        
-        
+        pygame.draw.line(screen, color, (center_x + line_length - (width/2)+1, center_y + line_y_dist), (center_x + line_length-(width/2)+1, center_y - line_y_dist), width)
+        #Header
+        #def render_textrect(text, x, y, width, height, size, color, target, font_path)
+        text_box.render_textrect(text,
+                                center_x+100, 
+                                center_y - (line_y_dist), 
+                                line_length-100, 
+                                line_y_dist, 
+                                60, 
+                                color, 
+                                screen, 
+                                font_path)
+        #Status Text
+        text_box.render_textrect(subtext,
+                                center_x+100, 
+                                center_y, 
+                                line_length-100, 
+                                line_y_dist, 
+                                30, 
+                                color, 
+                                screen, 
+                                font_path)

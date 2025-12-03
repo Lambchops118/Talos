@@ -1,61 +1,41 @@
 import pygame
+import os
+import sys
 
-def render_textrect(text, font, rect, text_color, bg_color=None):
+#font_path = r"C:\Users\aljac\Desktop\Talos\InfoPanel\VT323-Regular.ttf"
 
-    lines = []
-    words = text.split(" ")
+def render_textrect(text, x, y, width, height, size, color, target, font_path):
+        # Create font
+        font = pygame.font.Font(font_path, size)
 
-    # Build lines one by one
-    current_line = ""
-    for word in words:
-        test_line = current_line + word + " "
-        # Check width if we add this word
-        if font.size(test_line)[0] <= rect.width:
-            current_line = test_line
-        else:
-            lines.append(current_line)
-            current_line = word + " "
-    lines.append(current_line)  # Add last line
+        # Word wrap text into a list of lines
+        words = text.split(" ")
+        lines = []
+        current = ""
 
-    # Make surface
-    surface = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
-    if bg_color:
-        surface.fill(bg_color)
+        for word in words:
+            test = current + word + " "
+            if font.size(test)[0] <= width:
+                current = test
+            else:
+                lines.append(current)
+                current = word + " "
+        lines.append(current)
 
-    # Render each line
-    y = 0
-    line_height = font.get_linesize()
-    for line in lines:
-        if y + line_height > rect.height:
-            break  # Stop if no space left
-        text_surf = font.render(line, True, text_color)
-        surface.blit(text_surf, (0, y))
-        y += line_height
+        # Create the text block surface
+        surf = pygame.Surface((width, height), pygame.SRCALPHA)
 
-    return surface
+        line_height = font.get_linesize()
+        ty = 0
 
+        for line in lines:
+            if ty + line_height > height:
+                break
+            text_surf = font.render(line, True, color)
+            surf.blit(text_surf, (0, ty))
+            ty += line_height
 
-pygame.init()
-screen = pygame.display.set_mode((640, 480))
-font = pygame.font.SysFont(None, 24)
+        # Blit to target surface at (x, y)
+        target.blit(surf, (x, y))
 
-text = " words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words words  "
-
-textbox_rect = pygame.Rect(50, 50, 300, 150)
-
-running = True
-while running:
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-
-    screen.fill((30, 30, 30))
-
-    text_surface = render_textrect(
-        text, font, textbox_rect,
-        (255, 255, 255),      # text color
-        (50, 50, 50)          # background
-    )
-    screen.blit(text_surface, textbox_rect.topleft)
-
-    pygame.display.update()
+        return surf
