@@ -163,3 +163,6 @@ def start_scheduler(gui_queue):
 
     scheduler.start()
     return scheduler
+
+wake_display()
+#dim_display()

@@ -3,6 +3,7 @@
 
 import paho.mqtt.client as mqtt
 import subprocess
+import time
 
 BROKER = "localhost"
 TOPIC  = "tv_display/wake_status"
@@ -15,9 +16,6 @@ def send_cec(cmd: str) -> int:
     print(f"[DEBUG] Running: {full_cmd}")
     return result.returncode
 
-def tv_power_on():
-    send_cec("on 0")
-
 def tv_power_off():
     send_cec("standby 0")
 
@@ -25,7 +23,13 @@ def switch_to_pi_input(): #Pi is responsible for MQTT broker and CEC program.
     send_cec("as")
 
 def switch_to_server_pc_input(): #Server PC is responsible for Monkey Butler core.
-    send_cec("2.0.0.0")
+    send_cec("tx 1F:82:20:00")
+
+def tv_power_on():
+    send_cec("on 0")
+    time.sleep(8)
+    #switch_to_pi_input() #Monkey Butler doesnt run on the pi
+    switch_to_server_pc_input()
 
 def on_message(client, userdata, msg):
     payload = msg.payload.decode().strip()
