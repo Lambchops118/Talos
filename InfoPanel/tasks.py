@@ -115,8 +115,8 @@ def wake_display(): #This will require a script on the PI to listen on this MQTT
     # client.connect(BROKER, PORT, keepalive=60)
     # client.publish(topic, message)
     # client.disconnect()
-    tv_control.FireTvController.wake_and_wait()
-    tv_control.FireTvController.hdmi1()
+    tv_control.FireTvController.morning_turn_on()
+
 
 
 def dim_display(): #This will require a script on the PI to listen on this MQTT port and then send the CEC signal to the TV
@@ -128,7 +128,7 @@ def dim_display(): #This will require a script on the PI to listen on this MQTT 
     # client.connect(BROKER, PORT, keepalive=60)
     # client.publish(topic, message)
     # client.disconnect()
-    tv_control.FireTvController.sleep()
+    tv_control.FireTvController.night_sleep()
 
 # Start the chron job scheduler
 def start_scheduler(gui_queue):

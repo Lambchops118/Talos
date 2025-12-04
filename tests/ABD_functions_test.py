@@ -12,7 +12,7 @@ from typing import List, Optional
 ADB_PATH = "adb"
 
 # Fire TV IP (no port)
-TV_IP = "192.168.1.123"  # <-- change this to your Fire TV's IP
+TV_IP = "192.168.1.158"  # <-- change this to your Fire TV's IP
 TV_PORT = 5555           # default ADB TCP port
 
 # Keycodes (these are typical; adjust if needed)
@@ -269,6 +269,48 @@ class FireTvController:
 # Example usage
 # ==========================
 
+
+def morning_turn_on():
+    tv = FireTvController()
+
+    print(f"Connecting to {tv.target}...")
+    if not tv.connect():
+        print("Could not connect. Make sure ADB debugging is enabled on the TV and IP is correct.")
+        return
+
+    if not tv.is_connected():
+        print("Device not listed in adb devices, aborting.")
+        return
+
+    print("Connected!")
+
+    print("Waking TV and going to HDMI 2...")
+    tv.wake_and_wait(delay=5)
+    tv.hdmi2()
+
+    print("Disconnecting...")
+    tv.disconnect()
+
+def night_sleep():
+    tv = FireTvController()
+
+    print(f"Connecting to {tv.target}...")
+    if not tv.connect():
+        print("Could not connect. Make sure ADB debugging is enabled on the TV and IP is correct.")
+        return
+
+    if not tv.is_connected():
+        print("Device not listed in adb devices, aborting.")
+        return
+
+    print("Connected!")
+
+    print("Putting TV to sleep...")
+    tv.sleep()
+
+    print("Disconnecting...")
+    tv.disconnect()
+
 def main():
     tv = FireTvController()
 
@@ -303,5 +345,8 @@ def main():
     tv.disconnect()
 
 
-if __name__ == "__main__":
-    main()
+#if __name__ == "__main__":
+ #   morning_turn_on()
+
+#night_sleep()
+#morning_turn_on()
