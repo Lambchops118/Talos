@@ -10,6 +10,15 @@ TOPIC  = "tv_display/wake_status"
 
 CEC_CLIENT_CMD = "cec-client -s -d 1"
 
+TV_IP = "192.168.1.158"    # <-- change to your TV's IP
+ADB = "adb"
+HDMI2_KEY = "244"          # <-- or 243/245 depending on your model
+
+def switch_to_hdmi2():
+    subprocess.run([ADB, "connect", f"{TV_IP}:5555"])
+    subprocess.run([ADB, "-s", f"{TV_IP}:5555", "shell", "input", "keyevent", HDMI2_KEY])
+    print("Sent HDMI 2 switch command to Fire TV.")
+
 def send_cec(cmd: str) -> int:
     full_cmd = f'echo "{cmd}" | {CEC_CLIENT_CMD}'
     result   = subprocess.run(full_cmd, shell=True)
@@ -39,6 +48,8 @@ def on_message(client, userdata, msg):
         tv_power_off()
     elif payload == "1":
         tv_power_on()
+        time.sleep(8)
+        switch_to_hdmi2()
 
 def main():    
     client = mqtt.Client()
