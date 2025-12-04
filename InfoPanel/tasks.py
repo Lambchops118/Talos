@@ -108,14 +108,14 @@ def daily_forecast_job(gui_queue): # We can probably replace qui_queue with proc
     
 def wake_display(): #This will require a script on the PI to listen on this MQTT port and then send the CEC signal to the TV
     print("Waking Display.")
-    # TOPIC_PREFIX = "tv_display"
-    # topic        = f"{TOPIC_PREFIX}/wake_status"
-    # message      = "1"
-    # client  = mqtt.Client()
-    # client.connect(BROKER, PORT, keepalive=60)
-    # client.publish(topic, message)
-    # client.disconnect()
-    tv_control.FireTvController.morning_turn_on()
+    TOPIC_PREFIX = "tv_display"
+    topic        = f"{TOPIC_PREFIX}/wake_status"
+    message      = "1"
+    client  = mqtt.Client()
+    client.connect(BROKER, PORT, keepalive=60)
+    client.publish(topic, message)
+    client.disconnect()
+    #tv_control.FireTvController.morning_turn_on() #This wont work because by morning tv is hard resting
 
 
 
@@ -128,7 +128,7 @@ def dim_display(): #This will require a script on the PI to listen on this MQTT 
     # client.connect(BROKER, PORT, keepalive=60)
     # client.publish(topic, message)
     # client.disconnect()
-    tv_control.FireTvController.night_sleep()
+    tv_control.night_sleep()
 
 # Start the chron job scheduler
 def start_scheduler(gui_queue):

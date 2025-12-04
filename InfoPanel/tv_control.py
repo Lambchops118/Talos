@@ -269,6 +269,20 @@ class FireTvController:
 # Example usage
 # ==========================
 
+def switch_to_hdmi2():
+    tv = FireTvController()
+    print(f"Connecting to {tv.target}...")
+    if not tv.connect():
+        print("Could not connect. Make sure ADB debugging is enabled on the TV and IP is correct.")
+        return
+    if not tv.is_connected():
+        print("Device not listed in adb devices, aborting.")
+        return
+    print("Connected!")
+    tv.hdmi2()
+
+    print("Disconnecting...")
+    tv.disconnect()
 
 def morning_turn_on():
     tv = FireTvController()
