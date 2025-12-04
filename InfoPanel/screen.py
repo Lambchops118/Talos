@@ -163,57 +163,57 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
        degrees = circle_time * 4
        textbox = "MQTT Broker"
        subtext = "ONLINE"
-       gears.draw_dynamo(screen, degrees, color, 1700, 250, scale, textbox, subtext)
+       gears.draw_dynamo(screen, degrees, color, 1700*scale, 250*scale, scale, textbox, subtext)
     else:
        degrees = 0
        textbox = "MQTT Broker"
        subtext = "OFFLINE"
-       gears.draw_dynamo(screen, 0, color_offline, 1700, 250, scale, textbox, subtext)
+       gears.draw_dynamo(screen, 0, color_offline, 1700*scale, 250*scale, scale, textbox, subtext)
        
     if is_auxpanel_online:
        degrees = circle_time * 4
        textbox = "Display Panels"
        subtext = "ONLINE"
-       gears.draw_dynamo(screen, degrees, color, 1700, 475, scale, textbox, subtext)
+       gears.draw_dynamo(screen, degrees, color, 1700*scale, 475*scale, scale, textbox, subtext)
     else:
        degrees = 0
        textbox = "Display Panels"
        subtext = "OFFLINE"
-       gears.draw_dynamo(screen, degrees, color, 1700, 475, scale, textbox, subtext)
+       gears.draw_dynamo(screen, degrees, color, 1700*scale, 475*scale, scale, textbox, subtext)
 
     #Unused Gears
     if is_waterer_online:
         degrees = circle_time * 4
         textbox = "Auto Waterer"
         subtext = "ONLINE"
-        gears.draw_dynamo(screen, degrees, color, 1700, 700, scale, textbox, subtext)
+        gears.draw_dynamo(screen, degrees, color, 1700*scale, 700*scale, scale, textbox, subtext)
     else:
         degrees = 0
         textbox = "Auto Waterer"
         subtext = "OFFLINE"
-        gears.draw_dynamo(screen, degrees, color_offline, 1700, 700, scale, textbox, subtext)
+        gears.draw_dynamo(screen, degrees, color_offline, 1700*scale, 700*scale, scale, textbox, subtext)
 
     if is_placeholder2_online:
         degrees = circle_time * 4
         textbox = "--"
         subtext = "ONLINE"
-        gears.draw_dynamo(screen, degrees, color, 1700, 925, scale, textbox, subtext)
+        gears.draw_dynamo(screen, degrees, color, 1700*scale, 925*scale, scale, textbox, subtext)
     else:
         degrees = 0
         textbox = "--"
         subtext = "OFFLINE"
-        gears.draw_dynamo(screen, degrees, color_offline, 1700, 925, scale, textbox, subtext)
+        gears.draw_dynamo(screen, degrees, color_offline, 1700*scale, 925*scale, scale, textbox, subtext)
     
     if is_placeholder3_online:
         degrees = circle_time * 4
         textbox = "--"
         subtext = "ONLINE"
-        gears.draw_dynamo(screen, degrees, color, 1700, 1150, scale, textbox, subtext)
+        gears.draw_dynamo(screen, degrees, color, 1700*scale, 1150*scale, scale, textbox, subtext)
     else:
         degrees = 0
         textbox = "--"
         subtext = "OFFLINE"
-        gears.draw_dynamo(screen, degrees, color_offline, 1700, 1150, scale, textbox, subtext)
+        gears.draw_dynamo(screen, degrees, color_offline, 1700*scale, 1150*scale, scale, textbox, subtext)
 
 def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for new commands to display.
     print("Starting Pygame GUI for Info Panel...")
