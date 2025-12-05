@@ -57,7 +57,7 @@ def gear_place(screen, degrees, color, x, y, scale):
 
 def draw_dynamo(screen, degrees, color, center_x, center_y, scale, text, subtext): #Gear + Info Tab 
         #Draw Gear Part
-        print("Drawing Dynamo at gear center:", center_x, center_y)
+        #print("Drawing Dynamo at gear center:", center_x, center_y)
         radius = gear_place(screen, degrees, color, center_x, center_y, scale)
         width  = int(5 * scale)
 
