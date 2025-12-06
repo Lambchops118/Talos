@@ -70,11 +70,11 @@ def draw_dynamo(screen, degrees, color, center_x, center_y, scale, text, subtext
         #Header
         #def render_textrect(text, x, y, width, height, size, color, target, font_path)
         text_box.render_textrect(text,
-                                (center_x+100)*scale, 
-                                (center_y - (line_y_dist))*scale, 
-                                (line_length-100)*scale, 
-                                line_y_dist*scale, 
-                                60, 
+                                (center_x+100), 
+                                (center_y - (line_y_dist)), 
+                                (line_length-100), 
+                                line_y_dist, 
+                                int(60*scale)-5, 
                                 color, 
                                 screen, 
                                 font_path)
@@ -84,7 +84,7 @@ def draw_dynamo(screen, degrees, color, center_x, center_y, scale, text, subtext
                                 center_y, 
                                 line_length-100, 
                                 line_y_dist, 
-                                30, 
+                                int(30*scale), 
                                 color, 
                                 screen, 
                                 font_path)

@@ -1,5 +1,6 @@
+import poll_apis
 import tv_control
-from datetime import datetime
+from   datetime import datetime
 from   zoneinfo import ZoneInfo
 import paho.mqtt.client as mqtt
 from   apscheduler.triggers.cron import CronTrigger
@@ -8,6 +9,12 @@ from   apscheduler.schedulers.background import BackgroundScheduler
 TZ = ZoneInfo("America/New_York")  # pick your local tz
 BROKER = "192.168.1.160"
 PORT   = 1883
+
+#Cast these to global variables so they can be called from API every 15 mins, but written out on screen at update rate. Sort of like a synthetic queue
+global bitcoin_price
+global ethereum_price
+global ripple_price
+global solana_price
 
 # =============== FUNCTION DICTIONARY ====================
 functions = [
@@ -72,6 +79,17 @@ def search_web(query):
 def print_directions():
     None
 
+def get_crypto_prices():
+    bitcoin_price = poll_apis.get_bitcoin()
+    ethereum_price = poll_apis.get_ethereum
+    ripple_price = poll_apis.get_ripple
+    solana_price = poll_apis.get_solana
+
+    return bitcoin_price, ethereum_price, ripple_price, solana_price
+
+
+    
+
 def water_plants(pot_number):
     print("THIS IS THE PLACEHOLDER FOR WATERING PLANTS" + str(pot_number))
     TOPIC_PREFIX  = "quad_pump"
@@ -96,7 +114,7 @@ def turn_on_lights(room):
     return f"Turning on lights in the {room}."
 
 
-# ==== DAILY TIME BASED FUNCTIONS ==================================================================================
+# ==== SPECIFIC TIME BASED FUNCTIONS ==================================================================================
 
 #Define Time based jobs
 def daily_forecast_job(gui_queue): # We can probably replace qui_queue with processing_queue if we want TTS playback too.
@@ -116,8 +134,6 @@ def wake_display(): #This will require a script on the PI to listen on this MQTT
     client.publish(topic, message)
     client.disconnect()
     #tv_control.FireTvController.morning_turn_on() #This wont work because by morning tv is hard resting
-
-
 
 def dim_display(): #This will require a script on the PI to listen on this MQTT port and then send the CEC signal to the TV
     print("Dimming Display.")
@@ -161,6 +177,14 @@ def start_scheduler(gui_queue):
         trigger  = CronTrigger(hour=23, minute=0), # Daily at 11:00 PM
         args     = None,
         id       = "dim_display",
+        replace_existing = True,
+    )
+
+    scheduler.add_job(
+        get_crypto_prices,
+        trigger  = CronTrigger(minute="*/15"), # Every 15 Minutes
+        args     = None,
+        id       = "get_crypto_prices",
         replace_existing = True,
     )
 

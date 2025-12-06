@@ -5,6 +5,7 @@ import queue
 import pygame
 from   dotenv import load_dotenv; load_dotenv()
 
+import tasks
 import gears2 as gears
 import screen_effects as fx
 import MBVectorArt2 as MBVectorArt
@@ -65,7 +66,7 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
     date_readable = time.strftime("%B %#d, %Y")
     #weekday       = time.strftime("%A")
 
-    is_auxpanel_online     = True
+    is_auxpanel_online     = False
     is_mqtt_online         = True
     is_waterer_online      = True
     is_placeholder2_online = False
@@ -138,7 +139,9 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
         width=3
     )
 
-    draw_text_centered("[Weather Forecast]", base_w/4.5, (base_h/14)+150,     color, 40)
+    print(tasks.bitcoin_price)
+
+    draw_text_centered("[Weather Forecast]", base_w/4.5, (base_h/14)+150,  color, 40)
     draw_text_centered("[Crypto Price]",     base_w/4.5, (base_h/14)+200,  color, 40)
     draw_text_centered("[Fear Greed Index]", base_w/4.5, (base_h/14)+250,  color, 40)
     draw_text_centered("[Something Else]",   base_w/4.5, (base_h/14)+300,  color, 40)
@@ -154,7 +157,7 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
     draw_text_centered("Systems Status", base_w/1.25, base_h/14,  color, 50)
     draw_text_centered("Chopscorp. Ltd. c 1977", base_w-180, base_h-75,  color, 30)
 
-    scale = 1 
+    scale = 0.75 
 
     
 
@@ -179,7 +182,7 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
        degrees = 0
        textbox = "Display Panels"
        subtext = "OFFLINE"
-       gears.draw_dynamo(screen, degrees, color, 1700*scale, 475*scale, scale, textbox, subtext)
+       gears.draw_dynamo(screen, degrees, color_offline, 1700*scale, 475*scale, scale, textbox, subtext)
 
     #Unused Gears
     if is_waterer_online:

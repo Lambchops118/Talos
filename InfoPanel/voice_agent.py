@@ -1,3 +1,4 @@
+import io
 import os
 import time
 import wave
@@ -8,10 +9,13 @@ import openai
 import pyaudio
 import threading
 import contextlib
+from dotenv import load_dotenv
 import speech_recognition as sr
 from   concurrent.futures import ThreadPoolExecutor
 
 import tasks
+
+load_dotenv()
 
 # =============== VOICE AGENT SETUP ===============
 r               = sr.Recognizer()
@@ -73,15 +77,47 @@ def play_audio(filename): #Plays the WAV from AWS Polly then deletes the file.
 
 
 # =============== RECOGNITION CALLBACK ===============
+# def recognition_callback(recognizer, audio_data, processing_queue):
+#     """Background callback when speech is detected. It extracts the command
+#     after the wake word and places it on ``processing_queue`` for the worker."""
+#     print("Recognition callback triggered.")
+#     try:
+#         print("Trying recognition...")
+#         text_spoken = recognizer.recognize_google(audio_data).lower()
+#         #text_spoken = recognizer.recognize_whisper(audio_data, model="base")
+#         print(f"User said: {text_spoken}")
+#         if text_spoken.startswith(WAKE_WORD):
+#             command = text_spoken[len(WAKE_WORD):].strip()
+#             print(f"Command received: {command}")
+#             if command:
+#                 processing_queue.put(command)
+#                 print(f"Command '{command}' added to processing queue.")
+#     except sr.UnknownValueError:
+#         print("Could not understand the audio.")
+#     except sr.RequestError as e:
+#         print(f"Speech Recognition API error: {e}")
+#     except Exception as e:
+#         print(f"Unexpected Error: {e}")
+
+
+#Experiment with whisper API
 def recognition_callback(recognizer, audio_data, processing_queue):
-    """Background callback when speech is detected. It extracts the command
-    after the wake word and places it on ``processing_queue`` for the worker."""
     print("Recognition callback triggered.")
     try:
-        print("Trying recognition...")
-        text_spoken = recognizer.recognize_google(audio_data).lower()
-        #text_spoken = recognizer.recognize_whisper(audio_data, model="base")
+        print("Trying recognition with Whisper...")
+        wav_bytes = audio_data.get_wav_data()
+        audio_file = io.BytesIO(wav_bytes)
+        audio_file.name = "speech.wav"  # needed for content-type detection
+
+        whisper_text = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=audio_file,
+            response_format="text",  # returns plain text
+            # language="en",  # optionally lock language
+        )
+        text_spoken = whisper_text.lower()
         print(f"User said: {text_spoken}")
+
         if text_spoken.startswith(WAKE_WORD):
             command = text_spoken[len(WAKE_WORD):].strip()
             print(f"Command received: {command}")

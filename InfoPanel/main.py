@@ -13,7 +13,7 @@
  # - make prompt better
  # - 
 
-# Python Libs
+# Python Libs 
 import queue
 import threading
 from   dotenv import load_dotenv; load_dotenv()
@@ -30,6 +30,7 @@ fp = 0
 if __name__ == "__main__":
     gui_queue        = queue.Queue() # Queue for GUI Updates                    --- this is the queue to show text on the GUI
     processing_queue = queue.Queue() # Queue for processing recognized commands --- This is the queue to process the commands
+
     stop_listening   = voice_agent.run_voice_recognition(processing_queue) # Start background listening
     command_worker   = threading.Thread(target=voice_agent.process_commands, args=(processing_queue, gui_queue)) # Start worker for command processing
     command_worker.start()
