@@ -10,7 +10,7 @@ TZ = ZoneInfo("America/New_York")  # pick your local tz
 BROKER = "192.168.1.160"
 PORT   = 1883
 
-#Cast these to global variables so they can be called from API every 15 mins, but written out on screen at update rate. Sort of like a synthetic queue
+#Cast these to global variables so they can be called from API every 15 mins, but written out on screen at update rate.
 global bitcoin_price
 global ethereum_price
 global ripple_price

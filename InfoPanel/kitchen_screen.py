@@ -8,7 +8,7 @@ from   dotenv import load_dotenv; load_dotenv()
 import gears2 as gears
 
 font_path     = r"C:\Users\aljac\Desktop\Talos\InfoPanel\VT323-Regular.ttf"
-#font        = pygame.font.SysFont(None, 24)
+#font          = pygame.font.SysFont(None, 24)
 screen_width  = 1920
 screen_height = 1080
 
@@ -80,12 +80,8 @@ def screen_main():
                 if event.key == pygame.K_ESCAPE:
                     running = False
 
-        # 1. Clear the screen each frame
         screen.fill((0, 0, 0))  # or your background color
-
-        # 2. Draw stuff
         draw_mouse_coordinates(screen)
-
         render_textrect(
                 f"""PLACEHOLDER: 
                 Line 1\n
@@ -101,10 +97,7 @@ def screen_main():
                 target = screen
             )
         
-        # 3. Flip/update the display
         pygame.display.flip()
-
-        # 4. Cap the frame rate
         clock.tick(60)
         circle_time += 1
 

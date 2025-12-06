@@ -1,19 +1,7 @@
 # Part of TALOS
 # Monkey Butler Device Operations System
 
-# This is the main file for the "Info Panel" display application. Everything starts from here.
-
-#BUGS AND TO DO
- # - Make sure multiple commands in quick succession are handled properly.
- # - See if openai api call code can be cleaned up further.
- # - fix plant watering functions
-
- # - implement morning routine.
- # - implement openai continuous chats
- # - make prompt better
- # - 
-
-# Python Libs 
+# Python Libs (Losers and Haters)
 import queue
 import threading
 from   dotenv import load_dotenv; load_dotenv()
@@ -35,7 +23,7 @@ if __name__ == "__main__":
     command_worker   = threading.Thread(target=voice_agent.process_commands, args=(processing_queue, gui_queue)) # Start worker for command processing
     command_worker.start()
 
-    scheduler = tasks.start_scheduler(gui_queue)  # <-- start APScheduler
+    scheduler = tasks.start_scheduler(gui_queue)
 
     try:
         if fp == 0:

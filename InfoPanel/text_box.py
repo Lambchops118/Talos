@@ -1,3 +1,5 @@
+# Function to create text box with wrapped text in pygame
+
 import pygame
 import os
 import sys
@@ -5,12 +7,11 @@ import sys
 #font_path = r"C:\Users\aljac\Desktop\Talos\InfoPanel\VT323-Regular.ttf"
 
 def render_textrect(text, x, y, width, height, size, color, target, font_path):
-        # Create font
         font = pygame.font.Font(font_path, size)
 
         # Word wrap text into a list of lines
-        words = text.split(" ")
-        lines = []
+        words   = text.split(" ")
+        lines   = []
         current = ""
 
         for word in words:
