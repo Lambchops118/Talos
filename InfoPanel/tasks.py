@@ -15,6 +15,10 @@ global bitcoin_price
 global ethereum_price
 global ripple_price
 global solana_price
+bitcoin_price  = poll_apis.get_bitcoin()
+ethereum_price = poll_apis.get_ethereum()
+ripple_price   = poll_apis.get_ripple()
+solana_price   = poll_apis.get_solana()
 
 # =============== FUNCTION DICTIONARY ====================
 functions = [
@@ -81,9 +85,9 @@ def print_directions():
 
 def get_crypto_prices():
     bitcoin_price = poll_apis.get_bitcoin()
-    ethereum_price = poll_apis.get_ethereum
-    ripple_price = poll_apis.get_ripple
-    solana_price = poll_apis.get_solana
+    ethereum_price = poll_apis.get_ethereum()
+    ripple_price = poll_apis.get_ripple()
+    solana_price = poll_apis.get_solana()
 
     return bitcoin_price, ethereum_price, ripple_price, solana_price
 

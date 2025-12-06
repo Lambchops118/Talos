@@ -139,10 +139,10 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
         width=3
     )
 
-    print(tasks.bitcoin_price)
+    #print(tasks.bitcoin_price)
 
     draw_text_centered("[Weather Forecast]", base_w/4.5, (base_h/14)+150,  color, 40)
-    draw_text_centered("[Crypto Price]",     base_w/4.5, (base_h/14)+200,  color, 40)
+    draw_text_centered(f"Bitcoin Price {tasks.bitcoin_price}",     base_w/4.5, (base_h/14)+200,  color, 40)
     draw_text_centered("[Fear Greed Index]", base_w/4.5, (base_h/14)+250,  color, 40)
     draw_text_centered("[Something Else]",   base_w/4.5, (base_h/14)+300,  color, 40)
 
