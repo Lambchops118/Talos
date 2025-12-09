@@ -91,7 +91,8 @@ def get_crypto_prices():
 
     return bitcoin_price, ethereum_price, ripple_price, solana_price
 
-
+def morning_motd():
+    None
     
 
 def water_plants(pot_number):
