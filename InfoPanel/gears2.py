@@ -88,3 +88,7 @@ def draw_dynamo(screen, degrees, color, center_x, center_y, scale, text, subtext
                                 color, 
                                 screen, 
                                 font_path)
+        
+
+
+
