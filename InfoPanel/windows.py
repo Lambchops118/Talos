@@ -33,8 +33,8 @@ class Widget:
 
         self.words = config.text.split()
 
-        self.x_centered = self.x + (0.5 * self.obj_width)
-        self.y_centered = self.y + (0.5 * self.obj_height)
+        self.x_centered = self.x # - (0.5 * self.obj_width)
+        self.y_centered = self.y # - (0.5 * self.obj_height)
 
     def drawCenteredRect(self):
         pygame.draw.rect(self.surface,
@@ -45,36 +45,47 @@ class Widget:
                          self.obj_height),
                          self.line_width)
         
-    def createTextArea(self):
-        font = pygame.font.Font(FONT_PATH, self.font_size)
-        self.lines = []
-        self.current = ""
+    def render_text_area(self, text: str, x: int, y: int, w: int, h: int, *, font_size=None, color=None):
+        font_size = font_size or self.font_size
+        color = color or self.color
+        font = pygame.font.Font(FONT_PATH, font_size)
 
-        for word in self.words:
-            test = self.current + word + " "
-            if font.size(test)[0] <= self.obj_width:
-                self.current = test
+        words = text.split()
+        lines = []
+        current = ""
+
+        for word in words:
+            test = current + word + " "
+            if font.size(test)[0] <= w:
+                current = test
             else:
-                self.lines.append(self.current)
-                self.current = word + " "
-        self.lines.append(self.current)
+                lines.append(current)
+                current = word + " "
+        lines.append(current)
 
-        #Create text block pygame surface
+        surf = pygame.Surface((w, h), pygame.SRCALPHA)
+        line_height = font.get_linesize()
+        ty = 0
 
-        self.surf = pygame.Surface((self.obj_width, self.obj_height), pygame.SRCALPHA)
-        self.line_height = font.get_linesize()
-        self.ty = 0
-
-        for line in self.lines:
-            if self.ty + self.line_height > self.obj_height:
+        for line in lines:
+            if ty + line_height > h:
                 break
-            self.text_surf = font.render(line, True, self.color)
-            self.surf.blit(self.text_surf, (0, self.ty))
-            self.ty += self.line_height
+            text_surf = font.render(line, True, color)
+            surf.blit(text_surf, (0, ty))
+            ty += line_height
 
-        self.surface.blit(self.surf, (self.x_centered, self.y_centered))
-
-        return self.surf
+        self.surface.blit(surf, (x, y))
+        return surf
+        
+    def createTextArea(self):
+        # default behavior: render config.text inside the widget area
+        return self.render_text_area(
+            text=" ".join(self.words),
+            x=self.x,
+            y=self.y,
+            w=self.obj_width,
+            h=self.obj_height
+        )
 
 
 #class dynamo
@@ -128,6 +139,7 @@ class Dynamo(Widget):
 
         line_y_dist = self.radius - self.line_width
         line_length = 600 * self.scale
+        height      = (center_y + line_y_dist) - (center_y - line_y_dist)
 
         pygame.draw.line(self.surface, self.color,
                          (center_x, center_y + line_y_dist),
@@ -144,7 +156,23 @@ class Dynamo(Widget):
                           center_y - line_y_dist),
                          self.line_width)
 
-        self.createTextArea()
+        self.render_text_area(self.supertext, (center_x + 0.175*line_length), (center_y-line_y_dist           ), line_length, (height*0.5))
+        self.render_text_area(self.subtext,   (center_x + 0.175*line_length), (center_y-line_y_dist+height*0.5), line_length, (height*0.5), font_size=30*self.scale)
+
+        #self.render_text_area("test", 100, 100, 300, 300)
+        #self.render_text_area("test2", 50, 50, 300, 300)
+
+
+
+# def render_text_area(self, text: str, x: int, y: int, w: int, h: int, *, font_size=None, color=None):
+#             def drawCenteredRect(self):
+#         pygame.draw.rect(self.surface,
+#                          self.color,
+#                          (self.x_centered,
+#                          self.y_centered,
+#                          self.obj_width,
+#                          self.obj_height),
+#                          self.line_width)
             
             
             

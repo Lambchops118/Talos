@@ -252,9 +252,6 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
     last_command  = "\"butler, water the monstera\""
     last_response = "of course, sir. i have activated the pump for the pot with the monstera."
 
-    
-
-
 
     #========================================================================================
     # Off-screen render target
@@ -284,9 +281,9 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
     #     screen.blit(surface, (int(x*scale_x), int(y*scale_y)))
 
     dynamo_configs = [
-        dict(x=1700-150, y=925-375, base_deg=0),
-        dict(x=500, y=300, base_deg=45),
-        dict(x=800, y=500, base_deg=90),
+        dict(x=1700, y=925, base_deg=0),
+        dict(x=1700, y=1150, base_deg=45),
+        #dict(x=800, y=500, base_deg=90),
     ]
     dynamos = [
         windows.Dynamo(
@@ -294,32 +291,22 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
                 surface=framebuffer,
                 x=cfg["x"],
                 y=cfg["y"],
-                obj_width=300,
-                obj_height=300,
+                obj_width=1,
+                obj_height=1,
                 scale=scale,
                 color=(255, 0, 0),
-                text="Test",
+                text="test text",
                 line_width=5,
-                font_size=30,
+                font_size=(60*scale -5),
             ),
-            "super",
-            "sub",
+            "Scooter",
+            "STOLEN :(",
             1,
             cfg["base_deg"],
         )
         for cfg in dynamo_configs
     ]
 
-    def draw_text_topleft(txt, x, y, color_=(255,255,255), size=30, target=None):
-        font_scaled = pygame.font.Font(font_path, int(size*((scale_x+scale_y)/2)))
-        surface     = font_scaled.render(str(txt), True, color_).convert_alpha()
-        tx = int(x*scale_x)
-        ty = int(y*scale_y)
-        if target is None:
-            screen.blit(surface, (tx, ty))
-        else:
-            target.blit(surface, (tx, ty))
-        return surface
     
     def render_textrect(
         text,
