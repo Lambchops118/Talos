@@ -13,7 +13,7 @@ import screen as scrn
 import kitchen_screen
 
 fp = 0
-scale = 1
+scale = 0.75
 
 # =============== MAIN ENTRY POINT ===============
 if __name__ == "__main__":

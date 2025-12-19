@@ -48,7 +48,7 @@ class Widget:
     def render_text_area(self, text: str, x: int, y: int, w: int, h: int, *, font_size=None, color=None):
         font_size = font_size or self.font_size
         color = color or self.color
-        font = pygame.font.Font(FONT_PATH, font_size)
+        font = pygame.font.Font(FONT_PATH, int(font_size))
 
         words = text.split()
         lines = []
@@ -102,6 +102,14 @@ class Dynamo(Widget):
         self.bump   = 15 * self.scale
         self.tooth_angle_offsets = [0, 45, 90, 135, 180, 225, 270, 315]
 
+    def status_color(self):
+        if self.system_status == 1:
+            self.color = (0, 255, 100)
+        else:
+            self.color = (5, 5, 5)
+        
+        return self.color
+
     def polar_point(self, center_x, center_y, theta, r):
         return (
             int(center_x + r * math.cos(theta)),
@@ -125,6 +133,8 @@ class Dynamo(Widget):
     def draw_dynamo(self):
         center_x = int(self.x_centered)
         center_y = int(self.y_centered)
+
+        self.status_color()
 
         pygame.draw.circle(
             self.surface, self.color, (center_x, center_y),

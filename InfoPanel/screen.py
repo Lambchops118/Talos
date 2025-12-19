@@ -29,7 +29,7 @@ RESOLUTIONS = {
     "1080P" : (1920, 1080),
 }
 
-scale = 1
+scale = 0.75
 
 def parse_base_resolution():
     if len(sys.argv) < 2:
@@ -281,9 +281,12 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
     #     screen.blit(surface, (int(x*scale_x), int(y*scale_y)))
 
     dynamo_configs = [
-        dict(x=1700, y=925, base_deg=0),
-        dict(x=1700, y=1150, base_deg=45),
-        #dict(x=800, y=500, base_deg=90),
+        dict(x=1700, y=250, base_deg=45, surface=framebuffer, scale=scale, color=color, supertext= "trial", subtext="line1", status=0),
+        dict(x=1700, y=475, base_deg=45, surface=framebuffer, scale=scale, color=color, supertext= "trial", subtext="line2", status=0),
+        dict(x=1700, y=700, base_deg=45, surface=framebuffer, scale=scale, color=color, supertext= "trial", subtext="line3", status=0),
+        dict(x=1700, y=925,  base_deg=0,  surface=framebuffer, scale=scale, color=color, supertext= "trial", subtext="line4", status=1),
+        dict(x=1700, y=1150, base_deg=45, surface=framebuffer, scale=scale, color=color, supertext= "trial", subtext="line5", status=0),
+        #dict(x=100, y=100,   base_deg=90, surface=framebuffer, scale=scale, color=color, supertext= "trial", subtext="line3", status=1),
     ]
     dynamos = [
         windows.Dynamo(
@@ -291,17 +294,17 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
                 surface=framebuffer,
                 x=cfg["x"],
                 y=cfg["y"],
-                obj_width=1,
-                obj_height=1,
+                obj_width=0,
+                obj_height=0,
                 scale=scale,
                 color=(255, 0, 0),
                 text="test text",
                 line_width=5,
-                font_size=(60*scale -5),
+                font_size=(60),
             ),
-            "Scooter",
-            "STOLEN :(",
-            1,
+            cfg["supertext"],
+            cfg["subtext"],
+            cfg["status"],
             cfg["base_deg"],
         )
         for cfg in dynamo_configs
