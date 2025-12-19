@@ -13,6 +13,7 @@ import screen as scrn
 import kitchen_screen
 
 fp = 0
+scale = 1
 
 # =============== MAIN ENTRY POINT ===============
 if __name__ == "__main__":
@@ -27,7 +28,7 @@ if __name__ == "__main__":
 
     try:
         if fp == 0:
-            scrn.run_info_panel_gui(gui_queue) # Run pygame GUI in main thread
+            scrn.run_info_panel_gui(gui_queue, scale) # Run pygame GUI in main thread
         elif fp == 1:
             kitchen_screen.screen_main() # Run kitchen screen app
     finally:

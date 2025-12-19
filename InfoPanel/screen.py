@@ -25,11 +25,11 @@ red           = (255, 0, 0)
 
 RESOLUTIONS = {
     "QHD"   : (2560, 1440),
-    #"QHD" : (1920, 1080),
     "UHD"   : (3840, 2160),
     "1080P" : (1920, 1080),
 }
 
+scale = 1
 
 def parse_base_resolution():
     if len(sys.argv) < 2:
@@ -59,7 +59,7 @@ def draw_open_rect(surface, color, x, y):
     pygame.draw.line(surface, color, (x + width, y), (x + width, y + height), line_thickness)
 
 
-def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
+def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time, scale):
     # Example time & date
     time_readable = time.strftime("%A %#I:%M %p")
     date_readable = time.strftime("%B %#d, %Y")
@@ -156,8 +156,6 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
     draw_text_centered("Systems Status", base_w/1.25, base_h/14,  color, 50)
     draw_text_centered("Chopscorp. Ltd. c 1977", base_w-180, base_h-75,  color, 30)
 
-    scale = 0.75
-
     
 
     #Gears
@@ -218,7 +216,7 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
         #gears.draw_dynamo(screen, degrees, color_offline, 1700*scale, 1150*scale, scale, textbox, subtext)
     
 
-def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for new commands to display.
+def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queue' for new commands to display.
     print("Starting Pygame GUI for Info Panel...")
 
     pygame.init()
@@ -286,7 +284,7 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
     #     screen.blit(surface, (int(x*scale_x), int(y*scale_y)))
 
     dynamo_configs = [
-        dict(x=1700, y=925, base_deg=0),
+        dict(x=1700-150, y=925-375, base_deg=0),
         dict(x=500, y=300, base_deg=45),
         dict(x=800, y=500, base_deg=90),
     ]
@@ -298,9 +296,9 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
                 y=cfg["y"],
                 obj_width=300,
                 obj_height=300,
-                scale=0.75,
-                color=color,
-                text="this text should appear in new dynamo",
+                scale=scale,
+                color=(255, 0, 0),
+                text="Test",
                 line_width=5,
                 font_size=30,
             ),
@@ -397,7 +395,7 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         # --- RENDER THE FRAME --- 
         framebuffer.fill((0, 1, 0))  # draw to off-screen
         # replace every 'screen' draw call with 'framebuffer' for your content:
-        static_drawings(framebuffer, base_w, base_h, scale_x, scale_y, circle_time)
+        static_drawings(framebuffer, base_w, base_h, scale_x, scale_y, circle_time, scale)
 
         # ... monkey head, text, 3D render, etc ...
         second = int(time.strftime("%S"))

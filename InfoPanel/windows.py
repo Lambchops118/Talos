@@ -82,27 +82,23 @@ class Widget:
 class Dynamo(Widget):
     def __init__(self, config, supertext, subtext, system_status, degrees):
         super().__init__(config)
-        self.supertext     = supertext
-        self.subtext       = subtext
-        self.text = [supertext, subtext]
+        self.supertext = supertext
+        self.subtext = subtext
         self.system_status = system_status
-        self.angle = 0
-        self.radius = 75 * self.scale
-        self.bump = 15 * self.scale
+
         self.degrees = degrees
+        self.radius = 75 * self.scale
+        self.bump   = 15 * self.scale
         self.tooth_angle_offsets = [0, 45, 90, 135, 180, 225, 270, 315]
 
-        self.x_centered_radial = self.x + (0.5 * self.radius)
-        self.y_centered_radial = self.y + (0.5 * self.radius)
-    
-    def polar_point(self, theta, r):
+    def polar_point(self, center_x, center_y, theta, r):
         return (
-            int(self.x_centered_radial + r * math.cos(theta)),
-            int(self.y_centered_radial + r * math.sin(theta))
+            int(center_x + r * math.cos(theta)),
+            int(center_y + r * math.sin(theta))
         )
-    
-    def compute_vertices(self):
-        theta_base = math.radians(self.degrees)
+
+    def compute_vertices(self, center_x, center_y, degrees):
+        theta_base = math.radians(degrees)
         theta_15   = math.radians(15)
         theta_12   = math.radians(12)
 
@@ -113,25 +109,41 @@ class Dynamo(Widget):
             (theta_base - theta_12, self.radius + self.bump),
         ]
 
-        self.point_list = [self.polar_point(theta, r) for theta, r in angles_and_radii]
+        return [self.polar_point(center_x, center_y, th, r) for th, r in angles_and_radii]
 
-        return self.point_list
-    
     def draw_dynamo(self):
-        pygame.draw.circle(self.surface, self.color, (self.x_centered_radial, self.y_centered_radial), self.radius, width=int(12*self.scale))
+        center_x = int(self.x_centered)
+        center_y = int(self.y_centered)
+
+        pygame.draw.circle(
+            self.surface, self.color, (center_x, center_y),
+            int(self.radius), width=int(12 * self.scale)
+        )
+
+        base = self.degrees
         for offset in self.tooth_angle_offsets:
-            self.degrees = self.degrees + offset
-            points = self.compute_vertices()
+            tooth_deg = base - offset 
+            points = self.compute_vertices(center_x, center_y, tooth_deg)
             pygame.draw.polygon(self.surface, self.color, points)
 
-        self.line_y_dist = self.radius# - self.obj_width
-        self.line_length = 600 * self.scale
+        line_y_dist = self.radius - self.line_width
+        line_length = 600 * self.scale
 
-        pygame.draw.line(self.surface, self.color, (self.x_centered, self.y_centered + self.line_y_dist), (self.x_centered + self.line_length, self.y_centered + self.line_y_dist), self.line_width)
-        pygame.draw.line(self.surface, self.color, (self.x_centered, self.y_centered - self.line_y_dist), (self.x_centered + self.line_length, self.y_centered - self.line_y_dist), self.line_width)
-        pygame.draw.line(self.surface, self.color, (self.x_centered + self.line_length - (self.obj_width/2)-2, self.y_centered + self.line_y_dist), (self.x_centered + self.line_length - (self.obj_width/2)-2, self.y_centered - self.line_y_dist ), self.line_width)
+        pygame.draw.line(self.surface, self.color,
+                         (center_x, center_y + line_y_dist),
+                         (center_x + line_length, center_y + line_y_dist),
+                         self.line_width)
+        pygame.draw.line(self.surface, self.color,
+                         (center_x, center_y - line_y_dist),
+                         (center_x + line_length, center_y - line_y_dist),
+                         self.line_width)
+        pygame.draw.line(self.surface, self.color,
+                         (center_x + line_length - (self.line_width/2),
+                          center_y + line_y_dist),
+                         (center_x + line_length - (self.line_width/2),
+                          center_y - line_y_dist),
+                         self.line_width)
 
-        self.createTextArea()
         self.createTextArea()
             
             
