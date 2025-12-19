@@ -15,10 +15,10 @@ global bitcoin_price
 global ethereum_price
 global ripple_price
 global solana_price
-bitcoin_price  = poll_apis.get_bitcoin()
-ethereum_price = poll_apis.get_ethereum()
-ripple_price   = poll_apis.get_ripple()
-solana_price   = poll_apis.get_solana()
+bitcoin_price  = 0
+ethereum_price = 0
+ripple_price   = 0
+solana_price   = 0
 
 # =============== FUNCTION DICTIONARY ====================
 functions = [

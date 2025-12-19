@@ -20,6 +20,7 @@ color         = (0, 255, 100)
 color_offline = (5, 5, 5)
 red           = (255, 0, 0)
 
+scale = 1
 
 RESOLUTIONS = {
     "QHD"   : (2560, 1440),
@@ -60,7 +61,7 @@ def draw_open_rect(surface, color, x, y):
     pygame.draw.line(surface, color, (x + width, y), (x + width, y + height), line_thickness)
 
 
-def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
+def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time, scale):
     # Example time & date
     time_readable = time.strftime("%A %#I:%M %p")
     date_readable = time.strftime("%B %#d, %Y")
@@ -157,7 +158,6 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
     draw_text_centered("Systems Status", base_w/1.25, base_h/14,  color, 50)
     draw_text_centered("Chopscorp. Ltd. c 1977", base_w-180, base_h-75,  color, 30)
 
-    scale = 0.75 
 
     
 
@@ -368,7 +368,7 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         # --- RENDER THE FRAME --- 
         framebuffer.fill((0, 1, 0))  # draw to off-screen
         # replace every 'screen' draw call with 'framebuffer' for your content:
-        static_drawings(framebuffer, base_w, base_h, scale_x, scale_y, circle_time)
+        static_drawings(framebuffer, base_w, base_h, scale_x, scale_y, circle_time, scale)
 
         # ... monkey head, text, 3D render, etc ...
         second = int(time.strftime("%S"))

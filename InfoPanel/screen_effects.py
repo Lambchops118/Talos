@@ -79,11 +79,11 @@ void main() {
 }
 """
 
-W, H           = 1920, 1080 # window size
-GAME_W, GAME_H = 1920, 1080 # internal render size (keeps warp fast)
+#W, H           = 1920, 1080 # window size
+#GAME_W, GAME_H = 1920, 1080 # internal render size (keeps warp fast)
 
-#W, H           = 2560, 1440 # window size
-#GAME_W, GAME_H = 2560, 1440 # internal render size (keeps warp fast)
+W, H           = 2560, 1440 # window size
+GAME_W, GAME_H = 2560, 1440 # internal render size (keeps warp fast)
 
 def build_scanlines(w, h, spacing=2, alpha=100):
     surf = pygame.Surface((w, h), pygame.SRCALPHA)
