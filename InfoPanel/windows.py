@@ -4,7 +4,7 @@ import pygame
 from dataclasses import dataclass
 import math
 
-FONT_PATH = ""
+FONT_PATH = r"C:\Users\aljac\Desktop\Talos\InfoPanel\VT323-Regular.ttf"
 
 @dataclass
 class WidgetConfig:
@@ -72,7 +72,7 @@ class Widget:
             self.surf.blit(self.text_surf, (0, self.ty))
             self.ty += self.line_height
 
-        self.surface.blit(self.surf, (self.x, self.y))
+        self.surface.blit(self.surf, (self.x_centered, self.y_centered))
 
         return self.surf
 
@@ -80,20 +80,25 @@ class Widget:
 #class dynamo
 
 class Dynamo(Widget):
-    def __init__(self, config, supertext, subtext, system_status):
-        super().__init__(**vars(config))
+    def __init__(self, config, supertext, subtext, system_status, degrees):
+        super().__init__(config)
         self.supertext     = supertext
         self.subtext       = subtext
+        self.text = [supertext, subtext]
         self.system_status = system_status
         self.angle = 0
-        self.radius = 75
-        self.bump = 15
-        self.degrees = 0
+        self.radius = 75 * self.scale
+        self.bump = 15 * self.scale
+        self.degrees = degrees
+        self.tooth_angle_offsets = [0, 45, 90, 135, 180, 225, 270, 315]
+
+        self.x_centered_radial = self.x + (0.5 * self.radius)
+        self.y_centered_radial = self.y + (0.5 * self.radius)
     
     def polar_point(self, theta, r):
         return (
-            int(self.x + r * math.cos(theta)),
-            int(self.y + r * math.sin(theta))
+            int(self.x_centered_radial + r * math.cos(theta)),
+            int(self.y_centered_radial + r * math.sin(theta))
         )
     
     def compute_vertices(self):
@@ -108,11 +113,26 @@ class Dynamo(Widget):
             (theta_base - theta_12, self.radius + self.bump),
         ]
 
-        point_list = [self.polar_point(theta, r) for theta, r in angles_and_radii]
-        return point_list
+        self.point_list = [self.polar_point(theta, r) for theta, r in angles_and_radii]
+
+        return self.point_list
     
     def draw_dynamo(self):
-        None
+        pygame.draw.circle(self.surface, self.color, (self.x_centered_radial, self.y_centered_radial), self.radius, width=int(12*self.scale))
+        for offset in self.tooth_angle_offsets:
+            self.degrees = self.degrees + offset
+            points = self.compute_vertices()
+            pygame.draw.polygon(self.surface, self.color, points)
 
-    def draw_gear_tooth(self):
-        None
+        self.line_y_dist = self.radius# - self.obj_width
+        self.line_length = 600 * self.scale
+
+        pygame.draw.line(self.surface, self.color, (self.x_centered, self.y_centered + self.line_y_dist), (self.x_centered + self.line_length, self.y_centered + self.line_y_dist), self.line_width)
+        pygame.draw.line(self.surface, self.color, (self.x_centered, self.y_centered - self.line_y_dist), (self.x_centered + self.line_length, self.y_centered - self.line_y_dist), self.line_width)
+        pygame.draw.line(self.surface, self.color, (self.x_centered + self.line_length - (self.obj_width/2)-2, self.y_centered + self.line_y_dist), (self.x_centered + self.line_length - (self.obj_width/2)-2, self.y_centered - self.line_y_dist ), self.line_width)
+
+        self.createTextArea()
+        self.createTextArea()
+            
+            
+            

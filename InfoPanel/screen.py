@@ -8,10 +8,12 @@ from   dotenv import load_dotenv; load_dotenv()
 import tasks
 import gears2 as gears
 import screen_effects as fx
-import MBVectorArt2 as MBVectorArt
+import butler_vector_art as MBVectorArt
 from   screen_effects import GpuCRT
 import obj_wireframe_loader as objl
 import moving_vector_portrait as vec3d
+
+import windows
 
 font_path = r"C:\Users\aljac\Desktop\Talos\InfoPanel\VT323-Regular.ttf"
 
@@ -28,6 +30,7 @@ RESOLUTIONS = {
     "1080P" : (1920, 1080),
 }
 
+
 def parse_base_resolution():
     if len(sys.argv) < 2:
         return RESOLUTIONS["QHD"]
@@ -38,10 +41,6 @@ def parse_base_resolution():
         print(f"Unknown resolution '{arg}'. Falling back to QHD.")
         return RESOLUTIONS["QHD"]
 
-#def gear_place(screen, degrees, color_, center_x, center_y, scale_x, scale_y):
-#    scaled_x = int(center_x * scale_x)
-#    scaled_y = int(center_y * scale_y)
-#    gears.gear_place(screen, degrees, color_, scaled_x, scaled_y, scale_x, scale_y)
 
 def draw_monkey_butler_head(screen, base_x, base_y, scale_x, scale_y, color_):
     MBVectorArt.draw_monkey_butler_head(screen, base_x, base_y, scale_x, scale_y, color_)
@@ -142,7 +141,7 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
     #print(tasks.bitcoin_price)
 
     draw_text_centered("[Weather Forecast]", base_w/4.5, (base_h/14)+150,  color, 40)
-    draw_text_centered(f"BTC: ${tasks.bitcoin_price} | ETH: ${tasks.ethereum_price}, | SOL: ${tasks.solana_price}",     base_w/4.5, (base_h/14)+200,  color, 40)
+    #draw_text_centered(f"BTC: ${tasks.bitcoin_price} | ETH: ${tasks.ethereum_price}, | SOL: ${tasks.solana_price}",     base_w/4.5, (base_h/14)+200,  color, 40)
     draw_text_centered("[Fear Greed Index]", base_w/4.5, (base_h/14)+250,  color, 40)
     draw_text_centered("[Something Else]",   base_w/4.5, (base_h/14)+300,  color, 40)
 
@@ -157,7 +156,7 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
     draw_text_centered("Systems Status", base_w/1.25, base_h/14,  color, 50)
     draw_text_centered("Chopscorp. Ltd. c 1977", base_w-180, base_h-75,  color, 30)
 
-    scale = 0.75 
+    scale = 0.75
 
     
 
@@ -200,23 +199,24 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time):
         degrees = circle_time * 4
         textbox = "--"
         subtext = "ONLINE"
-        gears.draw_dynamo(screen, degrees, color, 1700*scale, 925*scale, scale, textbox, subtext)
+        #gears.draw_dynamo(screen, degrees, color, 1700*scale, 925*scale, scale, textbox, subtext)
     else:
         degrees = 0
         textbox = "--"
         subtext = "OFFLINE"
-        gears.draw_dynamo(screen, degrees, color_offline, 1700*scale, 925*scale, scale, textbox, subtext)
+        #gears.draw_dynamo(screen, degrees, color_offline, 1700*scale, 925*scale, scale, textbox, subtext)
     
     if is_placeholder3_online:
         degrees = circle_time * 4
         textbox = "--"
         subtext = "ONLINE"
-        gears.draw_dynamo(screen, degrees, color, 1700*scale, 1150*scale, scale, textbox, subtext)
+        #gears.draw_dynamo(screen, degrees, color, 1700*scale, 1150*scale, scale, textbox, subtext)
     else:
         degrees = 0
         textbox = "--"
         subtext = "OFFLINE"
-        gears.draw_dynamo(screen, degrees, color_offline, 1700*scale, 1150*scale, scale, textbox, subtext)
+        #gears.draw_dynamo(screen, degrees, color_offline, 1700*scale, 1150*scale, scale, textbox, subtext)
+    
 
 def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for new commands to display.
     print("Starting Pygame GUI for Info Panel...")
@@ -247,11 +247,15 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
     clock = pygame.time.Clock()
     running = True
     circle_time = 0
+    angle = 0
 
     # We'll keep track of the "last voice command" and "last GPT response"
     # so we can display them in the GUI.
     last_command  = "\"butler, water the monstera\""
     last_response = "of course, sir. i have activated the pump for the pot with the monstera."
+
+    
+
 
 
     #========================================================================================
@@ -281,7 +285,32 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
     #     surface     = font_scaled.render(txt, True, color_)
     #     screen.blit(surface, (int(x*scale_x), int(y*scale_y)))
 
-    
+    dynamo_configs = [
+        dict(x=1700, y=925, base_deg=0),
+        dict(x=500, y=300, base_deg=45),
+        dict(x=800, y=500, base_deg=90),
+    ]
+    dynamos = [
+        windows.Dynamo(
+            windows.WidgetConfig(
+                surface=framebuffer,
+                x=cfg["x"],
+                y=cfg["y"],
+                obj_width=300,
+                obj_height=300,
+                scale=0.75,
+                color=color,
+                text="this text should appear in new dynamo",
+                line_width=5,
+                font_size=30,
+            ),
+            "super",
+            "sub",
+            1,
+            cfg["base_deg"],
+        )
+        for cfg in dynamo_configs
+    ]
 
     def draw_text_topleft(txt, x, y, color_=(255,255,255), size=30, target=None):
         font_scaled = pygame.font.Font(font_path, int(size*((scale_x+scale_y)/2)))
@@ -429,6 +458,12 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
             color  = color,
             target = framebuffer
         )
+
+        
+        angle = (angle + 4) % 360
+        for d, cfg in zip(dynamos, dynamo_configs):
+            d.degrees = angle + cfg["base_deg"]
+            d.draw_dynamo()
         # renderer.draw(
         #     framebuffer,
         #     character,
@@ -455,6 +490,7 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         post.blit(scanlines_surf,(0, 0))
         crt.draw_surface(post)
         #last_frame = post
+
 
         clock.tick(60)
         circle_time += 1
