@@ -58,7 +58,6 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time, scale
     is_placeholder2_online = False
     is_placeholder3_online = False
 
-
     def draw_text_centered(text, bx, by, color_, size=30):
         font_scaled = pygame.font.Font(font_path, int(size*((scale_x+scale_y)/2)))
         surface     = font_scaled.render(str(text), True, color_)
@@ -186,17 +185,19 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
 
     widget_configs = [
         #Basic Information Box
-        dict(x=145, y=170, obj_width=850, obj_height=500, surface=framebuffer, scale=scale, color=color, 
+        dict(x=145, y=170, obj_width=850, obj_height=500, surface=framebuffer, scale=scale, color=color,
              text="Crypto: 600 ", 
              fontsize = 45),
         
         #Voice Input Box
-        dict(x=60, y=735, obj_width=1500, obj_height=150, surface=framebuffer, scale=scale, color=color, 
+        dict(x=60, y=735, obj_width=1500, obj_height=150, surface=framebuffer, scale=scale, color=color,
+             id="voice_cmd", 
              text="\"Butler, water the Monstera...\"", 
              fontsize = 60),
 
         #Voice Response Box
         dict(x=60, y=900, obj_width=1500, obj_height=450, surface=framebuffer, scale=scale, color=color, 
+             id="voice_resp",
              text="Of course sir, the Monstera has been watered.", 
              fontsize = 60),
     ]
@@ -270,8 +271,13 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
             d.draw_dynamo()
 
         for w, cfg in zip(widgets, widget_configs):
-            w.drawCenteredRect()
-            w.createTextArea()
+                w.drawCenteredRect()
+                if cfg.get("id") == "voice_cmd":
+                    w.createTextArea(last_command)
+                elif cfg.get("id") == "voice_resp":
+                    w.createTextArea(last_response)
+                else:
+                    w.createTextArea()
 
 
         renderer.draw(

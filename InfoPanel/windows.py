@@ -77,8 +77,10 @@ class Widget:
         self.surface.blit(surf, (x, y))
         return surf
         
-    def createTextArea(self):
+    def createTextArea(self, text=None):
         # default behavior: render config.text inside the widget area
+        if text is not None:
+            self.words = text.split()
         return self.render_text_area(
             text=" ".join(self.words),
             x = self.x + 15,
