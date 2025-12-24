@@ -47,11 +47,11 @@ class Widget:
         
     def render_text_area(self, text: str, x: int, y: int, w: int, h: int, *, font_size=None, color=None):
         font_size = font_size or self.font_size
-        color = color or self.color
-        font = pygame.font.Font(FONT_PATH, int(font_size))
+        color     = color or self.color
+        font      = pygame.font.Font(FONT_PATH, int(font_size))
 
-        words = text.split()
-        lines = []
+        words   = text.split()
+        lines   = []
         current = ""
 
         for word in words:
@@ -81,10 +81,10 @@ class Widget:
         # default behavior: render config.text inside the widget area
         return self.render_text_area(
             text=" ".join(self.words),
-            x=self.x,
-            y=self.y,
-            w=self.obj_width,
-            h=self.obj_height
+            x = self.x + 15,
+            y = self.y + 15,
+            w = self.obj_width,
+            h = self.obj_height
         )
 
 
@@ -93,13 +93,13 @@ class Widget:
 class Dynamo(Widget):
     def __init__(self, config, supertext, subtext, system_status, degrees):
         super().__init__(config)
-        self.supertext = supertext
-        self.subtext = subtext
+        self.supertext     = supertext
+        self.subtext       = subtext
         self.system_status = system_status
 
         self.degrees = degrees
-        self.radius = 75 * self.scale
-        self.bump   = 15 * self.scale
+        self.radius  = 75 * self.scale
+        self.bump    = 15 * self.scale
         self.tooth_angle_offsets = [0, 45, 90, 135, 180, 225, 270, 315]
 
     def status_color(self):
@@ -107,7 +107,6 @@ class Dynamo(Widget):
             self.color = (0, 255, 100)
         else:
             self.color = (5, 5, 5)
-        
         return self.color
 
     def polar_point(self, center_x, center_y, theta, r):
@@ -135,6 +134,9 @@ class Dynamo(Widget):
         center_y = int(self.y_centered)
 
         self.status_color()
+
+        if self.system_status == 0:
+            self.degrees = 0
 
         pygame.draw.circle(
             self.surface, self.color, (center_x, center_y),
