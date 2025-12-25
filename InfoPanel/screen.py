@@ -314,3 +314,5 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
 
     pygame.quit()
     sys.exit()
+
+run_info_panel_gui(queue.Queue(), 0.75)
