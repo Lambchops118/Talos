@@ -135,9 +135,6 @@ class Dynamo(Widget):
 
         self.status_color()
 
-        if self.system_status == 0:
-            self.degrees = 0
-
         pygame.draw.circle(
             self.surface, self.color, (center_x, center_y),
             int(self.radius), width=int(12 * self.scale)

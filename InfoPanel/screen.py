@@ -76,8 +76,8 @@ def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time, scale
         screen.blit(surf, rect)
 
     items = [
-        (time_readable,   base_w/2,     base_h/2.3, 56),
-        (date_readable,   base_w/2,     base_h/2.1, 56),
+        (time_readable,   base_w/2,     base_h/2.3, 75),
+        (date_readable,   base_w/2,     base_h/2.1, 75),
         ("Monkey Butler", base_w/2,     base_h/14,  80),
         ("Information",   base_w/4,     base_h/14,  50),
         ("Systems Status",base_w/1.25,  base_h/14,  50),
@@ -152,12 +152,22 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
         is_placeholder2_online = 0
 
     # Add a new dict with settings to add new dynamos to the screen.
+
+    dynamo_system_status = {
+        "mqtt": 1,
+        "panels": 1,
+        "waterer": 1,
+        "placeholder2": 0,
+        "placeholder3": 1,
+    }
+
+
     dynamo_configs = [
-        dict(x=1700, y=250, base_deg=45, surface=framebuffer, scale=scale, color=color, supertext= "MQTT Broker", subtext="[status]", status=1),
-        dict(x=1700, y=475, base_deg=45, surface=framebuffer, scale=scale, color=color, supertext= "Display Panels", subtext="[status]", status=1),
-        dict(x=1700, y=700, base_deg=45, surface=framebuffer, scale=scale, color=color, supertext= "Auto Waterer", subtext="[status]", status=1),
-        dict(x=1700, y=925,  base_deg=45,  surface=framebuffer, scale=scale, color=color, supertext= "Undefined Subystem", subtext="", status=is_placeholder2_online),
-        dict(x=1700, y=1150, base_deg=45, surface=framebuffer, scale=scale, color=color, supertext= "Undefined Subystem", subtext="", status=0)
+        dict(id="mqtt", x=1700, y=250, base_deg=45, surface=framebuffer, scale=scale, color=color, supertext= "MQTT Broker", subtext="[status]"),
+        dict(id="panels",x=1700, y=475, base_deg=45, surface=framebuffer, scale=scale, color=color, supertext= "Display Panels", subtext="[status]"),
+        dict(id="waterer",x=1700, y=700, base_deg=45, surface=framebuffer, scale=scale, color=color, supertext= "Auto Waterer", subtext="[status]"),
+        dict(id="placeholder2",x=1700, y=925,  base_deg=45,  surface=framebuffer, scale=scale, color=color, supertext= "Undefined Subystem", subtext=""),
+        dict(id="placeholder3",x=1700, y=1150, base_deg=45, surface=framebuffer, scale=scale, color=color, supertext= "Undefined Subystem", subtext="")
     ]
     
     # This takes the dynamo configs and creates the actual Dynamo objects.
@@ -177,7 +187,7 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
             ),
             cfg["supertext"],
             cfg["subtext"],
-            cfg["status"],
+            dynamo_system_status[cfg["id"]],
             cfg["base_deg"],
         )
         for cfg in dynamo_configs
@@ -262,6 +272,13 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
         mb_base_x = base_w / 3.2
         mb_base_y = base_h / 2 + dy
 
+        # Update Dynamo Statuses Here.
+        dynamo_system_status["mqtt"]         = 1 if (second >= 0) else 0  #placeholder code to simulate status changes. replace with actual
+        dynamo_system_status["panels"]       = 1 if (second >= 10) else 0
+        dynamo_system_status["waterer"]      = 1 if (second >= 20) else 0
+        dynamo_system_status["placeholder2"] = 1 if (second >= 30) else 0
+        dynamo_system_status["placeholder3"] = 1 if (second >= 40) else 0
+
         debug = False
         if debug:
             draw_monkey_butler_head(framebuffer, mb_base_x+200, mb_base_y+150, scale_x, scale_y, color)
@@ -272,9 +289,10 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
         #draw_text_topleft(f"Last response: {last_response}", 75, 900, color, 36, target=framebuffer)
 
         # Draw Widgets to the screen
-        angle = (angle + 4) % 360
         for d, cfg in zip(dynamos, dynamo_configs):
-            d.degrees = angle + cfg["base_deg"]
+            d.system_status = dynamo_system_status[cfg["id"]]
+            if d.system_status == 1:
+                d.degrees = (d.degrees + 4) % 360
             d.draw_dynamo()
 
         for w, cfg in zip(widgets, widget_configs):
