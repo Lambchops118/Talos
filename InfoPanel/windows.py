@@ -30,7 +30,7 @@ class Widget:
         self.color       = config.color
         self.font_size   = int(config.font_size * config.scale)
         self.line_width  = int(config.line_width * config.scale)
-        self.words       = config.text.split()
+        self.text        = config.text
         self.x_centered  = self.x # - (0.5 * self.obj_width)
         self.y_centered  = self.y # - (0.5 * self.obj_height)
 
@@ -48,18 +48,22 @@ class Widget:
         color     = color or self.color
         font      = pygame.font.Font(FONT_PATH, int(font_size))
 
-        words   = text.split()
-        lines   = []
-        current = ""
-
-        for word in words:
-            test = current + word + " "
-            if font.size(test)[0] <= w:
-                current = test
-            else:
-                lines.append(current)
-                current = word + " "
-        lines.append(current)
+        lines = []
+        for paragraph in text.splitlines():
+            if paragraph == "":
+                lines.append("")
+                continue
+            words   = paragraph.split()
+            current = ""
+            for word in words:
+                test = current + word + " " if current else word + " "
+                if font.size(test)[0] <= w or current == "":
+                    current = test
+                else:
+                    lines.append(current.rstrip())
+                    current = word + " "
+            if current:
+                lines.append(current.rstrip())
 
         surf = pygame.Surface((w, h), pygame.SRCALPHA)
         line_height = font.get_linesize()
@@ -68,8 +72,9 @@ class Widget:
         for line in lines:
             if ty + line_height > h:
                 break
-            text_surf = font.render(line, True, color)
-            surf.blit(text_surf, (0, ty))
+            if line:
+                text_surf = font.render(line, True, color)
+                surf.blit(text_surf, (0, ty))
             ty += line_height
 
         self.surface.blit(surf, (x, y))
@@ -78,9 +83,9 @@ class Widget:
     def createTextArea(self, text=None):
         # default behavior: render config.text inside the widget area
         if text is not None:
-            self.words = text.split()
+            self.text = text
         return self.render_text_area(
-            text=" ".join(self.words),
+            text=self.text,
             x = self.x + 15,
             y = self.y + 15,
             w = self.obj_width,

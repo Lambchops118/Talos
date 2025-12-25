@@ -172,11 +172,31 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
     ]
 
     # Add new widget configs here to add new widgets to the screen.
+
+    widget_statuses = {
+        "btc_price": None,
+        "eth_price": None,
+        "sol_price": None,
+        "temp"     : None,
+        "feelslike": None,
+        "humidity" : None,
+        "wind"     : None,
+        "wind_dir" : None,
+        "weather"  : None,
+        "days"     : None
+    }
+
     widget_configs = [
         #Basic Information Box
         dict(x=145, y=170, obj_width=850, obj_height=500, surface=framebuffer, scale=scale, color=color,
-             text="Crypto: 600 ", 
-             fontsize = 45),
+             text=
+             "BTC: {btc_price}  ETH: {eth_price} SOL: ${sol_price} \n" \
+             "\n" \
+             "Temperature: {temp}°F  --  Feels Like: {feelslike}°F\n" \
+             "Humidity: {humidity}% \n" \
+             "Wind: {wind} mph {wind_direction} -- Weather: {weather}\n" \
+             "\n\nUptime: {days} days \n",
+             fontsize = 55),
         
         #Voice Input Box
         dict(x=60, y=735, obj_width=1500, obj_height=150, surface=framebuffer, scale=scale, color=color,
