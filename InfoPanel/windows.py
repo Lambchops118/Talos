@@ -1,23 +1,23 @@
 # The Info Panel consists of smaller GUIs. These include wrapped text boxes, character icons, and interface icons
 
-import pygame
-from dataclasses import dataclass
 import math
+import pygame
+from   dataclasses import dataclass
 
 FONT_PATH = r"C:\Users\aljac\Desktop\Talos\InfoPanel\VT323-Regular.ttf"
 
 @dataclass
 class WidgetConfig:
-    surface: pygame.Surface
-    x: int
-    y: int
-    obj_width: int
+    surface:    pygame.Surface
+    x:          int
+    y:          int
+    obj_width:  int
     obj_height: int
-    scale: float
-    color: tuple
-    text: str
+    scale:      float
+    color:      tuple
+    text:       str
     line_width: int
-    font_size: int
+    font_size:  int
 
 class Widget:
     def __init__(self, config: WidgetConfig):
@@ -30,11 +30,9 @@ class Widget:
         self.color       = config.color
         self.font_size   = int(config.font_size * config.scale)
         self.line_width  = int(config.line_width * config.scale)
-
-        self.words = config.text.split()
-
-        self.x_centered = self.x # - (0.5 * self.obj_width)
-        self.y_centered = self.y # - (0.5 * self.obj_height)
+        self.words       = config.text.split()
+        self.x_centered  = self.x # - (0.5 * self.obj_width)
+        self.y_centered  = self.y # - (0.5 * self.obj_height)
 
     def drawCenteredRect(self):
         pygame.draw.rect(self.surface,

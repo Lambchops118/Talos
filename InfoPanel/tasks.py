@@ -1,4 +1,4 @@
-import poll_apis
+#import poll_apis
 import tv_control
 from   datetime import datetime
 from   zoneinfo import ZoneInfo
