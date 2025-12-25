@@ -40,10 +40,8 @@ def parse_base_resolution():
         print(f"Unknown resolution '{arg}'. Falling back to QHD.")
         return RESOLUTIONS["QHD"]
 
-
 def draw_monkey_butler_head(screen, base_x, base_y, scale_x, scale_y, color_):
     MBVectorArt.draw_monkey_butler_head(screen, base_x, base_y, scale_x, scale_y, color_)
-
 
 _font_cache = {}
 
@@ -58,17 +56,6 @@ def get_font(size, scale_x=1.0*scale, scale_y=1.0*scale):
 def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time, scale):
     time_readable = time.strftime("%A %#I:%M %p")
     date_readable = time.strftime("%B %#d, %Y")
-
-    is_auxpanel_online     = False
-    is_mqtt_online         = True
-    is_waterer_online      = True
-    is_placeholder2_online = False
-    is_placeholder3_online = False
-
-    if time.localtime().tm_sec % 2 == 0:
-        is_placeholder2_online = 1
-    else:
-        is_placeholder2_online = 0
 
     def draw_text_centered(text, bx, by, color, size=30):
         surf = get_font(size).render(str(text), True, color)
@@ -143,16 +130,7 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
     mesh       = vec3d.cube_mesh(size=0.7) # Create a cube mesh
     angle      = 180.0 # Rotation angle for animation
 
-    is_placeholder2_online = False
-    is_placeholder3_online = False
-
-    if time.localtime().tm_sec % 2 == 0:
-        is_placeholder2_online = 1
-    else:
-        is_placeholder2_online = 0
-
     # Add a new dict with settings to add new dynamos to the screen.
-
     dynamo_system_status = {
         "mqtt": 1,
         "panels": 1,
@@ -291,6 +269,7 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
         # Draw Widgets to the screen
         for d, cfg in zip(dynamos, dynamo_configs):
             d.system_status = dynamo_system_status[cfg["id"]]
+            d.subtext = "online" if d.system_status == 1 else "offline"
             if d.system_status == 1:
                 d.degrees = (d.degrees + 4) % 360
             d.draw_dynamo()
