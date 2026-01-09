@@ -140,4 +140,4 @@ def screen_main():
     sys.exit()
 
 
-screen_main()
+#screen_main()

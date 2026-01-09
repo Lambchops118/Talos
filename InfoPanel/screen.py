@@ -97,7 +97,7 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
     print(f"Using base design resolution: {base_w}x{base_h}")
 
     screen = pygame.display.set_mode((screen_width, screen_height))#, pygame.FULLSCREEN)
-    pygame.display.set_caption("Scalable Pygame Port")
+    pygame.display.set_caption("Monkey Butler")
 
     mob_angle = 0
 

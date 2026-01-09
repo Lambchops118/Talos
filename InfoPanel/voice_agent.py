@@ -14,6 +14,7 @@ import speech_recognition as sr
 from   concurrent.futures import ThreadPoolExecutor
 
 import tasks
+from messages import Message, VoicePayload
 
 load_dotenv()
 
@@ -104,7 +105,7 @@ def play_audio(filename): #Plays the WAV from AWS Polly then deletes the file.
 
 
 #Experiment with whisper API
-def recognition_callback(recognizer, audio_data, processing_queue):
+def recognition_callback(recognizer, audio_data, central_queue):
     print("Recognition callback triggered.")
     try:
         print("Trying recognition with Whisper...")
@@ -125,8 +126,8 @@ def recognition_callback(recognizer, audio_data, processing_queue):
             command = text_spoken[len(WAKE_WORD):].strip()
             print(f"Command received: {command}")
             if command:
-                processing_queue.put(command)
-                print(f"Command '{command}' added to processing queue.")
+                central_queue.put(Message(type="voice_cmd", payload=VoicePayload(command)))
+                print(f"Command '{command}' added to central queue.")
     except sr.UnknownValueError:
         print("Could not understand the audio.")
     except sr.RequestError as e:
@@ -135,7 +136,7 @@ def recognition_callback(recognizer, audio_data, processing_queue):
         print(f"Unexpected Error: {e}")
 
 # =============== START BACKGROUND LISTENING ===============
-def run_voice_recognition(processing_queue): #Sets up background listening in a new thread. processing_queue is passed in.
+def run_voice_recognition(central_queue): #Sets up background listening in a new thread. central_queue is passed in.
     mic = sr.Microphone()
     print("Microphone initialized.")
     with mic as source:
@@ -147,22 +148,22 @@ def run_voice_recognition(processing_queue): #Sets up background listening in a 
         #r.energy_threshold = 300  # adjust empirically. At this point it has calibrated for ambient noise.
         print("Adjusted for ambient noise.")
 
-    def callback_wrapper(recognizer, audio_data): #Provide a lambda so we can pass processing_queue into the callback
-        recognition_callback(recognizer, audio_data, processing_queue)
+    def callback_wrapper(recognizer, audio_data): #Provide a lambda so we can pass central_queue into the callback
+        recognition_callback(recognizer, audio_data, central_queue)
 
     stop_listening = r.listen_in_background(mic, callback_wrapper) #Listen in the background
     print("Background listening started.")
     return stop_listening
 
 
-def handle_command(command, gui_queue): # Worker thread that processes commands recognized by the speech callback. Does Gpt interaction, function exec, TTS synthesis, and playback.
+def handle_command(command, gui_queue, state_snapshot="no recent status"): # Worker thread that processes commands recognized by the speech callback. Does Gpt interaction, function exec, TTS synthesis, and playback.
     print(f"Handling command: {command}") # Log the command being handled
     try:
         print("Creating OpenAI chat completion...")
         response = client.chat.completions.create(
             model    = "gpt-4-0613", # Using function-calling capable model
             messages = [
-                {"role": "system", "content": indoctrination}, # System prompt
+                {"role": "system", "content": f"{indoctrination}\n\nContext: {state_snapshot}"}, # System prompt with local context
                 {"role": "user",   "content": command}         # User command
             ],
             functions     = tasks.functions, # Function definitions
@@ -259,3 +260,8 @@ def process_commands(processing_queue, gui_queue): #Continuously read commands f
             if command is None:
                 break # Exit signal
             executor.submit(handle_command, command, gui_queue) # Submit command to thread pool
+
+
+def handle_command_with_context(command, gui_queue, state_snapshot):
+    """Wrapper so router can pass in a context snapshot."""
+    handle_command(command, gui_queue, state_snapshot)

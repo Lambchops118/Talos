@@ -11,18 +11,19 @@ import tasks
 import voice_agent
 import screen as scrn
 import kitchen_screen
+import router
 
 fp = 0
 scale = 0.75
 
 # =============== MAIN ENTRY POINT ===============
 if __name__ == "__main__":
-    gui_queue        = queue.Queue() # Queue for GUI Updates                    --- this is the queue to show text on the GUI
-    processing_queue = queue.Queue() # Queue for processing recognized commands --- This is the queue to process the commands
+    gui_queue     = queue.Queue()  # Queue for GUI Updates                    --- this is the queue to show text on the GUI
+    central_queue = queue.Queue()  # Central queue for voice/status/event data
 
-    stop_listening   = voice_agent.run_voice_recognition(processing_queue) # Start background listening
-    command_worker   = threading.Thread(target=voice_agent.process_commands, args=(processing_queue, gui_queue)) # Start worker for command processing
-    command_worker.start()
+    stop_listening = voice_agent.run_voice_recognition(central_queue) # Start background listening
+    router_thread  = threading.Thread(target=router.router_loop, args=(central_queue, gui_queue), daemon=True)
+    router_thread.start()
 
     scheduler = tasks.start_scheduler(gui_queue)
 
@@ -34,8 +35,8 @@ if __name__ == "__main__":
     finally:
         if stop_listening: # Shut down background listener and command worker
             stop_listening(wait_for_stop=False)
-        processing_queue.put(None)
-        command_worker.join()
+        central_queue.put(None)
+        router_thread.join(timeout=2)
 
         #stop scheduler cleanly
         try:
