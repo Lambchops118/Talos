@@ -3,6 +3,7 @@ import os
 import time
 import wave
 import json
+import audioop
 import boto3
 import openai
 #import whisper
@@ -109,6 +110,16 @@ def recognition_callback(recognizer, audio_data, central_queue):
     print("Recognition callback triggered.")
     try:
         print("Trying recognition with Whisper...")
+        raw_audio = audio_data.get_raw_data()
+        sample_width = audio_data.sample_width or 2
+        sample_rate  = audio_data.sample_rate  or 16000
+
+        rms = audioop.rms(raw_audio, sample_width)
+        duration = len(raw_audio) / float(sample_rate * sample_width) if sample_rate and sample_width else 0
+        if rms < 300 or duration < 0.35:  # skip silence/very short noise
+            print(f"Skipping low-energy audio (rms={rms}, dur={duration:.2f}s)")
+            return
+
         wav_bytes = audio_data.get_wav_data()
         audio_file = io.BytesIO(wav_bytes)
         audio_file.name = "speech.wav"  # needed for content-type detection
@@ -117,9 +128,13 @@ def recognition_callback(recognizer, audio_data, central_queue):
             model="whisper-1",
             file=audio_file,
             response_format="text",  # returns plain text
-            # language="en",  # optionally lock language
+            language="en",  # lock language to reduce hallucinations
+            temperature=0,
         )
-        text_spoken = whisper_text.lower()
+        text_spoken = whisper_text.strip().lower()
+        if not text_spoken:
+            print("No transcription returned.")
+            return
         print(f"User said: {text_spoken}")
 
         if text_spoken.startswith(WAKE_WORD):
@@ -140,12 +155,11 @@ def run_voice_recognition(central_queue): #Sets up background listening in a new
     mic = sr.Microphone()
     print("Microphone initialized.")
     with mic as source:
-        r.adjust_for_ambient_noise(source, duration=0.5) # adjust for ambient noise for 0.5 seconds
-        r.dynamic_energy_threshold = True
-        #r.pause_threshoold         = 1
-        #r.non_speaking_duration    = 0.8
-        # Optionally tune:
-        #r.energy_threshold = 300  # adjust empirically. At this point it has calibrated for ambient noise.
+        r.adjust_for_ambient_noise(source, duration=1.0) # adjust for ambient noise
+        r.dynamic_energy_threshold = False
+        r.energy_threshold         = 500  # tune as needed for your mic/room
+        r.pause_threshold          = 0.6
+        r.non_speaking_duration    = 0.4
         print("Adjusted for ambient noise.")
 
     def callback_wrapper(recognizer, audio_data): #Provide a lambda so we can pass central_queue into the callback
