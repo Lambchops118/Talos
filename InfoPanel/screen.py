@@ -31,6 +31,7 @@ RESOLUTIONS = {
 }
 
 scale = 0.75
+FORCED_WINDOW_SIZE = RESOLUTIONS["1080P"]
 
 def parse_base_resolution():
     if len(sys.argv) < 2:
@@ -100,12 +101,16 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
     pygame.init()
     info = pygame.display.Info()
 
-    screen_width, screen_height = info.current_w, info.current_h
+    display_w, display_h = info.current_w, info.current_h
+    screen_width, screen_height = FORCED_WINDOW_SIZE
 
     #w = screen_width
     #h = screen_height
 
-    print("Detected screen resolution:", screen_width, screen_height)
+    print("Detected screen resolution:", display_w, display_h)
+    print("Forcing window size:", screen_width, screen_height)
+    if display_w < screen_width or display_h < screen_height:
+        print("Warning: forced window is larger than the current display.")
 
     base_w, base_h = parse_base_resolution()
     print(f"Using base design resolution: {base_w}x{base_h}")
@@ -221,9 +226,9 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
     ]
 
 
-    character = objl.load_obj_wire( "InfoPanel/butlerv3.obj", keep_edges="feature", # try "boundary" or "all" 
-                                       feature_angle_deg=50.00, # larger -> fewer, sharper edges kept
-                                         target_radius=0.8 )
+    #character = objl.load_obj_wire( "InfoPanel/butlerv3.obj", keep_edges="feature", # try "boundary" or "all" 
+    #                                   feature_angle_deg=50.00, # larger -> fewer, sharper edges kept
+    #                                     target_radius=0.8 )
 
     while running: # [][]][][][][][][][][][][][][][][][][]MAIN LOOP[][][][][][][][][][][][][][][][][]
         # --- EVENT HANDLING ---
@@ -280,16 +285,16 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
                     w.createTextArea()
 
 
-        renderer.draw(
-            framebuffer,
-            character,
-            model_pos     = (0.0, -0.1, 3.2),
-            model_rot     = (0, mob_angle*0.9, 0),
-            model_scale   = 3.5,
-            camera_pos    = (0, 0, 0),
-            camera_target = (0, 0, 1),
-            zsort         = True
-        )
+        #renderer.draw(
+        #    framebuffer,
+        #    character,
+        #    model_pos     = (0.0, -0.1, 3.2),
+        #    model_rot     = (0, mob_angle*0.9, 0),
+        #    model_scale   = 3.5,
+        #    camera_pos    = (0, 0, 0),
+        #    camera_target = (0, 0, 1),
+        #    zsort         = True
+        #)
         # def draw_mouse_coordinates(surface):
         #     x, y = pygame.mouse.get_pos()
         #     text = font_scaled.render(f"({x}, {y})", True, (255, 255, 255))
