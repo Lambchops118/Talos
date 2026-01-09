@@ -22,8 +22,6 @@ color         = (0, 255, 100)
 color_offline = (5, 5, 5)
 red           = (255, 0, 0)
 
-
-
 RESOLUTIONS = {
     "QHD"   : (2560, 1440),
     "UHD"   : (3840, 2160),
@@ -43,56 +41,39 @@ def parse_base_resolution():
         print(f"Unknown resolution '{arg}'. Falling back to QHD.")
         return RESOLUTIONS["QHD"]
 
-
 def draw_monkey_butler_head(screen, base_x, base_y, scale_x, scale_y, color_):
     MBVectorArt.draw_monkey_butler_head(screen, base_x, base_y, scale_x, scale_y, color_)
 
+_font_cache = {}
+
+def get_font(size, scale_x=1.0*scale, scale_y=1.0*scale):
+    avg_scale = (scale_x + scale_y) / 2
+    key = int(size * avg_scale)
+    if key not in _font_cache:
+         _font_cache[key] = pygame.font.Font(font_path, key)
+    return _font_cache[key]
+
+
 def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time, scale):
-    # Example time & date
     time_readable = time.strftime("%A %#I:%M %p")
     date_readable = time.strftime("%B %#d, %Y")
-    #weekday       = time.strftime("%A")
 
-    is_auxpanel_online     = False
-    is_mqtt_online         = True
-    is_waterer_online      = True
-    is_placeholder2_online = False
-    is_placeholder3_online = False
+    def draw_text_centered(text, bx, by, color, size=30):
+        surf = get_font(size).render(str(text), True, color)
+        rect = surf.get_rect(center=(bx * scale_x, by * scale_y))
+        screen.blit(surf, rect)
 
-    def draw_text_centered(text, bx, by, color_, size=30):
-        font_scaled = pygame.font.Font(font_path, int(size*((scale_x+scale_y)/2)))
-        surface     = font_scaled.render(str(text), True, color_)
-        text_width  = surface.get_width()
-        text_height = surface.get_height()
-        draw_x      = int(bx*scale_x - text_width/2)
-        draw_y      = int(by*scale_y - text_height/2)
-        screen.blit(surface, (draw_x, draw_y))
+    items = [
+        (time_readable,   base_w/2,     base_h/2.3, 75),
+        (date_readable,   base_w/2,     base_h/2.1, 75),
+        ("Monkey Butler", base_w/2,     base_h/14,  80),
+        ("Information",   base_w/4,     base_h/14,  50),
+        ("Systems Status",base_w/1.25,  base_h/14,  50),
+        ("Chopscorp. Ltd. c 1977", base_w-180, base_h-75, 30),
+    ]
 
-    # Portrait Rectangle 
-    rect_base_x = base_w / 2
-    rect_base_y = base_h / 3.75
-    rect_base_w = 415
-    rect_base_h = 425
-
-    scaled_rect_x = int(rect_base_x*scale_x - (rect_base_w*scale_x)/2)
-    scaled_rect_y = int(rect_base_y*scale_y - (rect_base_h*scale_y)/2)
-    scaled_rect_w = int(rect_base_w*scale_x)
-    scaled_rect_h = int(rect_base_h*scale_y)
-
-    pygame.draw.rect(
-        screen,
-        color,
-        pygame.Rect(scaled_rect_x, scaled_rect_y, scaled_rect_w, scaled_rect_h),
-        width=5
-    )
-
-    # Text
-    draw_text_centered(time_readable,   base_w/2, base_h/2.3, color, 56)
-    draw_text_centered(date_readable,   base_w/2, base_h/2.1, color, 56)
-    draw_text_centered("Monkey Butler", base_w/2, base_h/14,  color, 80)
-    draw_text_centered("Information", base_w/4, base_h/14,  color, 50)
-    draw_text_centered("Systems Status", base_w/1.25, base_h/14,  color, 50)
-    draw_text_centered("Chopscorp. Ltd. c 1977", base_w-180, base_h-75,  color, 30)
+    for text, x, y, size in items:
+        draw_text_centered(text, x, y, color, size)
 
 
 def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queue' for new commands to display.
@@ -127,10 +108,10 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
     scale_x = screen_width / base_w
     scale_y = screen_height / base_h
 
-    clock = pygame.time.Clock()
-    running = True
-    circle_time = 0
-    angle = 0
+    clock        = pygame.time.Clock()
+    running      = True
+    circle_time  = 0
+    angle        = 0
 
     # We'll keep track of the "last voice command" and "last GPT response"
     # so we can display them in the GUI.
@@ -154,18 +135,29 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
 
     #Code for 3d wireframe panel
     panel_rect = (screen_width - 900 , 300, 340, 260) # x, y, w, h
-    renderer = vec3d.WireframeRenderer(panel_rect, fov=55, near=0.1, far=50) 
-    mesh = vec3d.cube_mesh(size=0.7) # Create a cube mesh
-    angle = 180.0 # Rotation angle for animation
+    renderer   = vec3d.WireframeRenderer(panel_rect, fov=55, near=0.1, far=50) 
+    mesh       = vec3d.cube_mesh(size=0.7) # Create a cube mesh
+    angle      = 180.0 # Rotation angle for animation
+
+    # Add a new dict with settings to add new dynamos to the screen.
+    dynamo_system_status = {
+        "mqtt": 1,
+        "panels": 1,
+        "waterer": 1,
+        "placeholder2": 0,
+        "placeholder3": 1,
+    }
+
 
     dynamo_configs = [
-        dict(x=1700, y=250, base_deg=45, surface=framebuffer, scale=scale, color=color, supertext= "MQTT Broker", subtext="[status]", status=1),
-        dict(x=1700, y=475, base_deg=45, surface=framebuffer, scale=scale, color=color, supertext= "Display Panels", subtext="[status]", status=1),
-        dict(x=1700, y=700, base_deg=45, surface=framebuffer, scale=scale, color=color, supertext= "Auto Waterer", subtext="[status]", status=1),
-        dict(x=1700, y=925,  base_deg=45,  surface=framebuffer, scale=scale, color=color, supertext= "Undefined Subystem", subtext="", status=0),
-        dict(x=1700, y=1150, base_deg=45, surface=framebuffer, scale=scale, color=color, supertext= "Undefined Subystem", subtext="", status=0)
+        dict(id="mqtt", x=1700, y=250, base_deg=45, surface=framebuffer, scale=scale, color=color, supertext= "MQTT Broker", subtext="[status]"),
+        dict(id="panels",x=1700, y=475, base_deg=45, surface=framebuffer, scale=scale, color=color, supertext= "Display Panels", subtext="[status]"),
+        dict(id="waterer",x=1700, y=700, base_deg=45, surface=framebuffer, scale=scale, color=color, supertext= "Auto Waterer", subtext="[status]"),
+        dict(id="placeholder2",x=1700, y=925,  base_deg=45,  surface=framebuffer, scale=scale, color=color, supertext= "Undefined Subystem", subtext=""),
+        dict(id="placeholder3",x=1700, y=1150, base_deg=45, surface=framebuffer, scale=scale, color=color, supertext= "Undefined Subystem", subtext="")
     ]
-
+    
+    # This takes the dynamo configs and creates the actual Dynamo objects.
     dynamos = [
         windows.Dynamo(
             windows.WidgetConfig(
@@ -182,17 +174,38 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
             ),
             cfg["supertext"],
             cfg["subtext"],
-            cfg["status"],
+            dynamo_system_status[cfg["id"]],
             cfg["base_deg"],
         )
         for cfg in dynamo_configs
     ]
 
+    # Add new widget configs here to add new widgets to the screen.
+
+    widget_statuses = {
+        "btc_price": None,
+        "eth_price": None,
+        "sol_price": None,
+        "temp"     : None,
+        "feelslike": None,
+        "humidity" : None,
+        "wind"     : None,
+        "wind_dir" : None,
+        "weather"  : None,
+        "days"     : None
+    }
+
     widget_configs = [
         #Basic Information Box
         dict(x=145, y=170, obj_width=850, obj_height=500, surface=framebuffer, scale=scale, color=color,
-             text="Crypto: 600 ", 
-             fontsize = 45),
+             text=
+             "BTC: {btc_price}  ETH: {eth_price} SOL: ${sol_price} \n" \
+             "\n" \
+             "Temperature: {temp}°F  --  Feels Like: {feelslike}°F\n" \
+             "Humidity: {humidity}% \n" \
+             "Wind: {wind} mph {wind_direction} -- Weather: {weather}\n" \
+             "\n\nUptime: {days} days \n",
+             fontsize = 55),
         
         #Voice Input Box
         dict(x=60, y=735, obj_width=1500, obj_height=150, surface=framebuffer, scale=scale, color=color,
@@ -205,8 +218,12 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
              id="voice_resp",
              text="Of course sir, the Monstera has been watered.", 
              fontsize = 60),
+        
+        #Portrait Box
+        dict(x=1073, y=170, obj_width=415, obj_height=426, surface=framebuffer, scale=scale, color=color, text="", fontsize=0, line_width=8),
     ]
 
+    # This takes the widget configs and creates the actual Widget objects.
     widgets = [
         windows.Widget(
             windows.WidgetConfig(
@@ -218,7 +235,7 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
                 scale=scale,
                 color=cfg["color"],
                 text=cfg["text"],
-                line_width=5,
+                line_width=cfg.get("line_width", 5),
                 font_size=cfg["fontsize"]
             )
         )
@@ -260,6 +277,13 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
         mb_base_x = base_w / 3.2
         mb_base_y = base_h / 2 + dy
 
+        # Update Dynamo Statuses Here.
+        dynamo_system_status["mqtt"]         = 1 if (second >= 0) else 0  #placeholder code to simulate status changes. replace with actual
+        dynamo_system_status["panels"]       = 1 if (second >= 10) else 0
+        dynamo_system_status["waterer"]      = 1 if (second >= 20) else 0
+        dynamo_system_status["placeholder2"] = 1 if (second >= 30) else 0
+        dynamo_system_status["placeholder3"] = 1 if (second >= 40) else 0
+
         debug = False
         if debug:
             draw_monkey_butler_head(framebuffer, mb_base_x+200, mb_base_y+150, scale_x, scale_y, color)
@@ -269,10 +293,12 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
         #draw_text_topleft(f"Last command:  {last_command}",  75, 740, color, 36, target=framebuffer)
         #draw_text_topleft(f"Last response: {last_response}", 75, 900, color, 36, target=framebuffer)
 
-        # Draw Widgets
-        angle = (angle + 4) % 360
+        # Draw Widgets to the screen
         for d, cfg in zip(dynamos, dynamo_configs):
-            d.degrees = angle + cfg["base_deg"]
+            d.system_status = dynamo_system_status[cfg["id"]]
+            d.subtext = "online" if d.system_status == 1 else "offline"
+            if d.system_status == 1:
+                d.degrees = (d.degrees + 4) % 360
             d.draw_dynamo()
 
         for w, cfg in zip(widgets, widget_configs):
@@ -302,7 +328,7 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
         # draw_mouse_coordinates(framebuffer)
 
         # === POST FX on a copy (so we can reuse framebuffer if needed) ===
-        post = framebuffer.copy()
+        post = framebuffer#.copy()
         #last_frame = post
         fx.add_bloom(post, strength=1, down=0.45)
         #post = fx.apply_persistence(last_frame, post, alpha=80)

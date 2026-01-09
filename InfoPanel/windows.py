@@ -1,23 +1,23 @@
 # The Info Panel consists of smaller GUIs. These include wrapped text boxes, character icons, and interface icons
 
-import pygame
-from dataclasses import dataclass
 import math
+import pygame
+from   dataclasses import dataclass
 
 FONT_PATH = r"C:\Users\aljac\Desktop\Talos\InfoPanel\VT323-Regular.ttf"
 
 @dataclass
 class WidgetConfig:
-    surface: pygame.Surface
-    x: int
-    y: int
-    obj_width: int
+    surface:    pygame.Surface
+    x:          int
+    y:          int
+    obj_width:  int
     obj_height: int
-    scale: float
-    color: tuple
-    text: str
+    scale:      float
+    color:      tuple
+    text:       str
     line_width: int
-    font_size: int
+    font_size:  int
 
 class Widget:
     def __init__(self, config: WidgetConfig):
@@ -30,11 +30,9 @@ class Widget:
         self.color       = config.color
         self.font_size   = int(config.font_size * config.scale)
         self.line_width  = int(config.line_width * config.scale)
-
-        self.words = config.text.split()
-
-        self.x_centered = self.x # - (0.5 * self.obj_width)
-        self.y_centered = self.y # - (0.5 * self.obj_height)
+        self.text        = config.text
+        self.x_centered  = self.x # - (0.5 * self.obj_width)
+        self.y_centered  = self.y # - (0.5 * self.obj_height)
 
     def drawCenteredRect(self):
         pygame.draw.rect(self.surface,
@@ -50,18 +48,22 @@ class Widget:
         color     = color or self.color
         font      = pygame.font.Font(FONT_PATH, int(font_size))
 
-        words   = text.split()
-        lines   = []
-        current = ""
-
-        for word in words:
-            test = current + word + " "
-            if font.size(test)[0] <= w:
-                current = test
-            else:
-                lines.append(current)
-                current = word + " "
-        lines.append(current)
+        lines = []
+        for paragraph in text.splitlines():
+            if paragraph == "":
+                lines.append("")
+                continue
+            words   = paragraph.split()
+            current = ""
+            for word in words:
+                test = current + word + " " if current else word + " "
+                if font.size(test)[0] <= w or current == "":
+                    current = test
+                else:
+                    lines.append(current.rstrip())
+                    current = word + " "
+            if current:
+                lines.append(current.rstrip())
 
         surf = pygame.Surface((w, h), pygame.SRCALPHA)
         line_height = font.get_linesize()
@@ -70,8 +72,9 @@ class Widget:
         for line in lines:
             if ty + line_height > h:
                 break
-            text_surf = font.render(line, True, color)
-            surf.blit(text_surf, (0, ty))
+            if line:
+                text_surf = font.render(line, True, color)
+                surf.blit(text_surf, (0, ty))
             ty += line_height
 
         self.surface.blit(surf, (x, y))
@@ -80,9 +83,9 @@ class Widget:
     def createTextArea(self, text=None):
         # default behavior: render config.text inside the widget area
         if text is not None:
-            self.words = text.split()
+            self.text = text
         return self.render_text_area(
-            text=" ".join(self.words),
+            text=self.text,
             x = self.x + 15,
             y = self.y + 15,
             w = self.obj_width,
@@ -136,9 +139,6 @@ class Dynamo(Widget):
         center_y = int(self.y_centered)
 
         self.status_color()
-
-        if self.system_status == 0:
-            self.degrees = 0
 
         pygame.draw.circle(
             self.surface, self.color, (center_x, center_y),
