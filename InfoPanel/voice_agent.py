@@ -222,6 +222,23 @@ def handle_command(command, gui_queue, state_snapshot="no recent status"): # Wor
                     max_tokens  = 150
                 )
                 response_text = followup.choices[0].message.content.strip()
+            
+            elif function_name == "toggle_fan":
+                result   = tasks.toggle_fan(**parsed_args)
+                followup = client.chat.completions.create(
+                    model="gpt-4-0613",
+                    messages=[
+                        {"role": "system", "content": indoctrination},
+                        {"role": "user", "content": command},
+                        {"role": "assistant", "function_call": {"name": function_name, "arguments": function_args}},
+                        {"role": "function", "name": function_name, "content": result}
+                    ],
+                    temperature = 0.5,
+                    max_tokens  = 150
+                )
+                response_text = followup.choices[0].message.content.strip()
+
+
                 print(f"Function '{function_name}' executed with result: {result}")
 
             else:
