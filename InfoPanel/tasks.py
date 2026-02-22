@@ -98,11 +98,11 @@ def search_web(query):
 def print_directions():
     None
 
-def get_crypto_prices():
-    bitcoin_price = poll_apis.get_bitcoin()
-    ethereum_price = poll_apis.get_ethereum()
-    ripple_price = poll_apis.get_ripple()
-    solana_price = poll_apis.get_solana()
+#def get_crypto_prices():
+    #bitcoin_price = poll_apis.get_bitcoin()
+    #ethereum_price = poll_apis.get_ethereum()
+    #ripple_price = poll_apis.get_ripple()
+    #solana_price = poll_apis.get_solana()
 
     return bitcoin_price, ethereum_price, ripple_price, solana_price
 
@@ -146,6 +146,9 @@ def toggle_fan(status):
 # ==== SPECIFIC TIME BASED FUNCTIONS ==================================================================================
 
 #Define Time based jobs
+def debug_job(gui_queue):
+    print("DEBUG JOB ACTIVATED")
+
 def daily_forecast_job(gui_queue): # We can probably replace qui_queue with processing_queue if we want TTS playback too.
     today = datetime.now(TZ).strftime("%Y-%m-%d")
     msg   = f"Forecast for {today}: (placeholder) sunny with a chance of bananas."
@@ -185,6 +188,16 @@ def start_scheduler(gui_queue):
             "misfire_grace_time" : 600          # seconds; OK to fire within 10 mins if late
         },
     )
+
+    #Debug Job
+    scheduler.add_job( 
+        debug_job,
+        trigger  = CronTrigger(hour=13, minute=31), # Daily at 7:30 AM
+        args     = [gui_queue],
+        id       = "debug_task",
+        replace_existing = True,
+    )
+
     scheduler.add_job(
         daily_forecast_job,
         trigger  = CronTrigger(hour=20, minute=36), # Daily at 7:30 AM
@@ -209,13 +222,13 @@ def start_scheduler(gui_queue):
         replace_existing = True,
     )
 
-    scheduler.add_job(
-        get_crypto_prices,
-        trigger  = CronTrigger(minute="*/15"), # Every 15 Minutes
-        args     = None,
-        id       = "get_crypto_prices",
-        replace_existing = True,
-    )
+    #scheduler.add_job(
+    #    get_crypto_prices,
+    #    trigger  = CronTrigger(minute="*/15"), # Every 15 Minutes
+    #    args     = None,
+    #    id       = "get_crypto_prices",
+    #    replace_existing = True,
+    #)
 
     #More jobs can be added here.
 
