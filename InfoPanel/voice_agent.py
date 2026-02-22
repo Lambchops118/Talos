@@ -24,7 +24,7 @@ load_dotenv()
 r               = sr.Recognizer()
 WAKE_WORD       = os.getenv("WAKE_WORD", "butler").lower()
 WAKE_WORD_MODE  = os.getenv("WAKE_WORD_MODE", "local").lower()  # "local" or "off"
-WAKE_WORD_MODEL = os.getenv("WAKE_WORD_MODEL", "tiny")
+WAKE_WORD_MODEL = os.getenv("WAKE_WORD_MODEL", "base")
 audio_interface = pyaudio.PyAudio()
 last_motd       = None
 
