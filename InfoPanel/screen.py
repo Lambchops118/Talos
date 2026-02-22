@@ -278,11 +278,11 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
         mb_base_y = base_h / 2 + dy
 
         # Update Dynamo Statuses Here.
-        dynamo_system_status["mqtt"]         = 1 if (second >= 0) else 0  #placeholder code to simulate status changes. replace with actual
-        dynamo_system_status["panels"]       = 1 if (second >= 10) else 0
-        dynamo_system_status["waterer"]      = 1 if (second >= 20) else 0
-        dynamo_system_status["placeholder2"] = 1 if (second >= 30) else 0
-        dynamo_system_status["placeholder3"] = 1 if (second >= 40) else 0
+        dynamo_system_status["mqtt"]         = 1 #if (second >= 0) else 0  #placeholder code to simulate status changes. replace with actual
+        dynamo_system_status["panels"]       = 1 #if (second >= 10) else 0
+        dynamo_system_status["waterer"]      = 1 #if (second >= 20) else 0
+        dynamo_system_status["placeholder2"] = 1 #if (second >= 30) else 0
+        dynamo_system_status["placeholder3"] = 1 #if (second >= 40) else 0
 
         debug = False
         if debug:
