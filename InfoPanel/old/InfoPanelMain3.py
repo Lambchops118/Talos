@@ -1,8 +1,8 @@
 import sys
 import time
 import pygame
-import MBVectorArt2 as MBVectorArt
-import gears2 as gears
+import InfoPanel.butler_vector_art as MBVectorArt
+import InfoPanel.gears as gears
 
 # --------------------------
 # Colors (R, G, B)

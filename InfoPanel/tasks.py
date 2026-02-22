@@ -1,4 +1,4 @@
-import poll_apis
+#import poll_apis
 import tv_control
 from   datetime import datetime
 from   zoneinfo import ZoneInfo
@@ -15,10 +15,10 @@ global bitcoin_price
 global ethereum_price
 global ripple_price
 global solana_price
-bitcoin_price  = 0
-ethereum_price = 0
-ripple_price   = 0
-solana_price   = 0
+# bitcoin_price  = poll_apis.get_bitcoin()
+# ethereum_price = poll_apis.get_ethereum()
+# ripple_price   = poll_apis.get_ripple()
+# solana_price   = poll_apis.get_solana()
 
 # =============== FUNCTION DICTIONARY ====================
 functions = [
@@ -65,6 +65,21 @@ functions = [
                 }
             },
             "required": ["room"]
+        }
+    },
+
+    {
+        "name": "toggle_fan",
+        "description": "Toggle the fan on (1) or off (0)",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "number",
+                    "description": "The number to send to the MQTT broker to toggle the fan on (1) or off (0)"
+                }
+            },
+            "required": ["status"]
         }
     }
 ]
@@ -117,6 +132,15 @@ def water_plants(pot_number):
 def turn_on_lights(room):
     print("THIS IS THE PLACEHOLDER FOR TURNING ON LIGHTS IN " + room)
     return f"Turning on lights in the {room}."
+
+def toggle_fan(status):
+    print(f"Toggling fan {status}")
+    topic   = "fan/16"
+    message = status
+    client  = mqtt.Client()
+    client.connect(BROKER, PORT, keepalive=60)
+    client.publish(topic, message)
+    client.disconnect()
 
 
 # ==== SPECIFIC TIME BASED FUNCTIONS ==================================================================================

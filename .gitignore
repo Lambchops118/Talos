@@ -1,3 +1,4 @@
 .env
 .env.*
 InfoPanel/tasks.py
+tests/persistent_convo.py

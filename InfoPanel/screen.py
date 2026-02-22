@@ -6,12 +6,14 @@ import pygame
 from   dotenv import load_dotenv; load_dotenv()
 
 import tasks
-import gears2 as gears
+#import gears2 as gears
 import screen_effects as fx
-import MBVectorArt2 as MBVectorArt
+import butler_vector_art as MBVectorArt
 from   screen_effects import GpuCRT
 import obj_wireframe_loader as objl
 import moving_vector_portrait as vec3d
+
+import windows
 
 font_path = r"C:\Users\aljac\Desktop\Talos\InfoPanel\VT323-Regular.ttf"
 
@@ -20,14 +22,14 @@ color         = (0, 255, 100)
 color_offline = (5, 5, 5)
 red           = (255, 0, 0)
 
-scale = 1
-
 RESOLUTIONS = {
     "QHD"   : (2560, 1440),
-    #"QHD" : (1920, 1080),
     "UHD"   : (3840, 2160),
     "1080P" : (1920, 1080),
 }
+
+scale = 0.75
+FORCED_WINDOW_SIZE = RESOLUTIONS["1080P"]
 
 def parse_base_resolution():
     if len(sys.argv) < 2:
@@ -39,203 +41,65 @@ def parse_base_resolution():
         print(f"Unknown resolution '{arg}'. Falling back to QHD.")
         return RESOLUTIONS["QHD"]
 
-#def gear_place(screen, degrees, color_, center_x, center_y, scale_x, scale_y):
-#    scaled_x = int(center_x * scale_x)
-#    scaled_y = int(center_y * scale_y)
-#    gears.gear_place(screen, degrees, color_, scaled_x, scaled_y, scale_x, scale_y)
-
 def draw_monkey_butler_head(screen, base_x, base_y, scale_x, scale_y, color_):
     MBVectorArt.draw_monkey_butler_head(screen, base_x, base_y, scale_x, scale_y, color_)
 
-def draw_scanlines(screen, screen_width, screen_height):
-    for y in range(0, screen_height, 2): # every 4 pixels
-        pygame.draw.line(screen, (0, 0, 0), (0, y), (8000, y), 1) # black line, 2 pixels thick
+_font_cache = {}
 
-
-def draw_open_rect(surface, color, x, y):
-    width = 500
-    height = 105
-    line_thickness = 3
-    pygame.draw.line(surface, color, (x, y), (x + width, y), line_thickness)
-    pygame.draw.line(surface, color, (x, y + height), (x + width, y + height), line_thickness)
-    pygame.draw.line(surface, color, (x + width, y), (x + width, y + height), line_thickness)
+def get_font(size, scale_x=1.0*scale, scale_y=1.0*scale):
+    avg_scale = (scale_x + scale_y) / 2
+    key = int(size * avg_scale)
+    if key not in _font_cache:
+         _font_cache[key] = pygame.font.Font(font_path, key)
+    return _font_cache[key]
 
 
 def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time, scale):
-    # Example time & date
     time_readable = time.strftime("%A %#I:%M %p")
     date_readable = time.strftime("%B %#d, %Y")
-    #weekday       = time.strftime("%A")
 
-    is_auxpanel_online     = False
-    is_mqtt_online         = True
-    is_waterer_online      = True
-    is_placeholder2_online = False
-    is_placeholder3_online = False
+    def draw_text_centered(text, bx, by, color, size=30):
+        surf = get_font(size).render(str(text), True, color)
+        rect = surf.get_rect(center=(bx * scale_x, by * scale_y))
+        screen.blit(surf, rect)
 
+    items = [
+        (time_readable,   base_w/2,     base_h/2.3, 75),
+        (date_readable,   base_w/2,     base_h/2.1, 75),
+        ("Monkey Butler", base_w/2,     base_h/14,  80),
+        ("Information",   base_w/4,     base_h/14,  50),
+        ("Systems Status",base_w/1.25,  base_h/14,  50),
+        ("Chopscorp. Ltd. c 1977", base_w-180, base_h-75, 30),
+    ]
 
-    def draw_text_centered(text, bx, by, color_, size=30):
-        font_scaled = pygame.font.Font(font_path, int(size*((scale_x+scale_y)/2)))
-        surface     = font_scaled.render(str(text), True, color_)
-        text_width  = surface.get_width()
-        text_height = surface.get_height()
-        draw_x      = int(bx*scale_x - text_width/2)
-        draw_y      = int(by*scale_y - text_height/2)
-        screen.blit(surface, (draw_x, draw_y))
-
-    # Portrait Rectangle 
-    rect_base_x = base_w / 2
-    rect_base_y = base_h / 3.75
-    rect_base_w = 415
-    rect_base_h = 425
-
-    scaled_rect_x = int(rect_base_x*scale_x - (rect_base_w*scale_x)/2)
-    scaled_rect_y = int(rect_base_y*scale_y - (rect_base_h*scale_y)/2)
-    scaled_rect_w = int(rect_base_w*scale_x)
-    scaled_rect_h = int(rect_base_h*scale_y)
-
-    pygame.draw.rect(
-        screen,
-        color,
-        pygame.Rect(scaled_rect_x, scaled_rect_y, scaled_rect_w, scaled_rect_h),
-        width=5
-    )
-
-    # Chat Box Rectangle
-    chat_rect_base_x, chat_rect_base_y = base_w/3.15, base_h/1.775
-    chat_rect_base_w, chat_rect_base_h = 1500, 150
-    chat_scaled_rect_x, chat_scaled_rect_y = int(chat_rect_base_x*scale_x - (chat_rect_base_w*scale_x)/2), int(chat_rect_base_y*scale_y - (chat_rect_base_h*scale_y)/2)
-    chat_scaled_rect_w, chat_scaled_rect_h = int(chat_rect_base_w*scale_x), int(chat_rect_base_h*scale_y)
-
-    pygame.draw.rect(
-        screen,
-        color,
-        pygame.Rect(chat_scaled_rect_x, chat_scaled_rect_y, chat_scaled_rect_w, chat_scaled_rect_h),
-        width=1
-    )
-
-    #Chat Response Rectangle
-    r_chat_rect_base_x, r_chat_rect_base_y = base_w/3.15, base_h/1.28
-    r_chat_rect_base_w, r_chat_rect_base_h = 1500, 450
-    r_chat_scaled_rect_x, r_chat_scaled_rect_y = int(r_chat_rect_base_x*scale_x - (r_chat_rect_base_w*scale_x)/2), int(r_chat_rect_base_y*scale_y - (r_chat_rect_base_h*scale_y)/2)
-    r_chat_scaled_rect_w, r_chat_scaled_rect_h = int(r_chat_rect_base_w*scale_x), int(r_chat_rect_base_h*scale_y)
-
-    pygame.draw.rect(
-        screen,
-        color,
-        pygame.Rect(r_chat_scaled_rect_x, r_chat_scaled_rect_y, r_chat_scaled_rect_w, r_chat_scaled_rect_h),
-        width=1
-    )
-
-    #Information Panel
-    r_chat_rect_base_x, r_chat_rect_base_y = base_w/4.5, base_h/3.425
-    r_chat_rect_base_w, r_chat_rect_base_h = 850, 500
-    r_chat_scaled_rect_x, r_chat_scaled_rect_y = int(r_chat_rect_base_x*scale_x - (r_chat_rect_base_w*scale_x)/2), int(r_chat_rect_base_y*scale_y - (r_chat_rect_base_h*scale_y)/2)
-    r_chat_scaled_rect_w, r_chat_scaled_rect_h = int(r_chat_rect_base_w*scale_x), int(r_chat_rect_base_h*scale_y)
-
-    pygame.draw.rect(
-        screen,
-        color,
-        pygame.Rect(r_chat_scaled_rect_x, r_chat_scaled_rect_y, r_chat_scaled_rect_w, r_chat_scaled_rect_h),
-        width=3
-    )
-
-    #print(tasks.bitcoin_price)
-
-    draw_text_centered("[Weather Forecast]", base_w/4.5, (base_h/14)+150,  color, 40)
-    draw_text_centered(f"BTC: ${tasks.bitcoin_price} | ETH: ${tasks.ethereum_price}, | SOL: ${tasks.solana_price}",     base_w/4.5, (base_h/14)+200,  color, 40)
-    draw_text_centered("[Fear Greed Index]", base_w/4.5, (base_h/14)+250,  color, 40)
-    draw_text_centered("[Something Else]",   base_w/4.5, (base_h/14)+300,  color, 40)
+    for text, x, y, size in items:
+        draw_text_centered(text, x, y, color, size)
 
 
-
-    # Text
-    draw_text_centered(time_readable,   base_w/2, base_h/2.3, color, 56)
-    draw_text_centered(date_readable,   base_w/2, base_h/2.1, color, 56)
-    #draw_text_centered(weekday,         base_w/2, base_h/2+25, color, 56)
-    draw_text_centered("Monkey Butler", base_w/2, base_h/14,  color, 80)
-    draw_text_centered("Information", base_w/4, base_h/14,  color, 50)
-    draw_text_centered("Systems Status", base_w/1.25, base_h/14,  color, 50)
-    draw_text_centered("Chopscorp. Ltd. c 1977", base_w-180, base_h-75,  color, 30)
-
-
-    
-
-    #Gears
-    if is_mqtt_online:
-       degrees = circle_time * 4
-       textbox = "MQTT Broker"
-       subtext = "ONLINE"
-       gears.draw_dynamo(screen, degrees, color, 1700*scale, 250*scale, scale, textbox, subtext)
-    else:
-       degrees = 0
-       textbox = "MQTT Broker"
-       subtext = "OFFLINE"
-       gears.draw_dynamo(screen, 0, color_offline, 1700*scale, 250*scale, scale, textbox, subtext)
-       
-    if is_auxpanel_online:
-       degrees = circle_time * 4
-       textbox = "Display Panels"
-       subtext = "ONLINE"
-       gears.draw_dynamo(screen, degrees, color, 1700*scale, 475*scale, scale, textbox, subtext)
-    else:
-       degrees = 0
-       textbox = "Display Panels"
-       subtext = "OFFLINE"
-       gears.draw_dynamo(screen, degrees, color_offline, 1700*scale, 475*scale, scale, textbox, subtext)
-
-    #Unused Gears
-    if is_waterer_online:
-        degrees = circle_time * 4
-        textbox = "Auto Waterer"
-        subtext = "ONLINE"
-        gears.draw_dynamo(screen, degrees, color, 1700*scale, 700*scale, scale, textbox, subtext)
-    else:
-        degrees = 0
-        textbox = "Auto Waterer"
-        subtext = "OFFLINE"
-        gears.draw_dynamo(screen, degrees, color_offline, 1700*scale, 700*scale, scale, textbox, subtext)
-
-    if is_placeholder2_online:
-        degrees = circle_time * 4
-        textbox = "--"
-        subtext = "ONLINE"
-        gears.draw_dynamo(screen, degrees, color, 1700*scale, 925*scale, scale, textbox, subtext)
-    else:
-        degrees = 0
-        textbox = "--"
-        subtext = "OFFLINE"
-        gears.draw_dynamo(screen, degrees, color_offline, 1700*scale, 925*scale, scale, textbox, subtext)
-    
-    if is_placeholder3_online:
-        degrees = circle_time * 4
-        textbox = "--"
-        subtext = "ONLINE"
-        gears.draw_dynamo(screen, degrees, color, 1700*scale, 1150*scale, scale, textbox, subtext)
-    else:
-        degrees = 0
-        textbox = "--"
-        subtext = "OFFLINE"
-        gears.draw_dynamo(screen, degrees, color_offline, 1700*scale, 1150*scale, scale, textbox, subtext)
-
-def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for new commands to display.
+def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queue' for new commands to display.
     print("Starting Pygame GUI for Info Panel...")
 
     pygame.init()
     info = pygame.display.Info()
 
-    screen_width, screen_height = info.current_w, info.current_h
+    display_w, display_h = info.current_w, info.current_h
+    screen_width, screen_height = FORCED_WINDOW_SIZE
 
-    w = screen_width
-    h = screen_height
+    #w = screen_width
+    #h = screen_height
 
-    print("Detected screen resolution:", screen_width, screen_height)
+    print("Detected screen resolution:", display_w, display_h)
+    print("Forcing window size:", screen_width, screen_height)
+    if display_w < screen_width or display_h < screen_height:
+        print("Warning: forced window is larger than the current display.")
 
     base_w, base_h = parse_base_resolution()
     print(f"Using base design resolution: {base_w}x{base_h}")
 
     screen = pygame.display.set_mode((screen_width, screen_height))#, pygame.FULLSCREEN)
-    pygame.display.set_caption("Scalable Pygame Port")
+    pygame.display.set_caption("Monkey Butler")
+
+    mob_angle = 0
 
     crt = GpuCRT(window_size=(screen_width, screen_height),
            kx=0.18, ky=0.16, curv=0.3,
@@ -244,9 +108,10 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
     scale_x = screen_width / base_w
     scale_y = screen_height / base_h
 
-    clock = pygame.time.Clock()
-    running = True
-    circle_time = 0
+    clock        = pygame.time.Clock()
+    running      = True
+    circle_time  = 0
+    angle        = 0
 
     # We'll keep track of the "last voice command" and "last GPT response"
     # so we can display them in the GUI.
@@ -269,74 +134,113 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
     #========================================================================================
 
     #Code for 3d wireframe panel
-    #panel_rect = (screen_width - 900 , 300, 340, 260) # x, y, w, h
-    #renderer = vec3d.WireframeRenderer(panel_rect, fov=55, near=0.1, far=50) 
-    #mesh = vec3d.cube_mesh(size=0.7) # Create a cube mesh
-    #angle = 180.0 # Rotation angle for animation
+    panel_rect = (screen_width - 900 , 300, 340, 260) # x, y, w, h
+    renderer   = vec3d.WireframeRenderer(panel_rect, fov=55, near=0.1, far=50) 
+    mesh       = vec3d.cube_mesh(size=0.7) # Create a cube mesh
+    angle      = 180.0 # Rotation angle for animation
 
-    # A small helper to draw text on screen (top-left)
-    # This can be improved. Why do we need a function specifically for top left?
-    # def draw_text_topleft(txt, x, y, color_=(255,255,255), size=30):
-    #     font_scaled = pygame.font.Font(font_path, int(size*((scale_x+scale_y)/2)))
-    #     surface     = font_scaled.render(txt, True, color_)
-    #     screen.blit(surface, (int(x*scale_x), int(y*scale_y)))
+    # Add a new dict with settings to add new dynamos to the screen.
+    dynamo_system_status = {
+        "mqtt": 1,
+        "panels": 1,
+        "waterer": 1,
+        "placeholder2": 0,
+        "placeholder3": 1,
+    }
 
+
+    dynamo_configs = [
+        dict(id="mqtt", x=1700, y=250, base_deg=45, surface=framebuffer, scale=scale, color=color, supertext= "MQTT Broker", subtext="[status]"),
+        dict(id="panels",x=1700, y=475, base_deg=45, surface=framebuffer, scale=scale, color=color, supertext= "Display Panels", subtext="[status]"),
+        dict(id="waterer",x=1700, y=700, base_deg=45, surface=framebuffer, scale=scale, color=color, supertext= "Auto Waterer", subtext="[status]"),
+        dict(id="placeholder2",x=1700, y=925,  base_deg=45,  surface=framebuffer, scale=scale, color=color, supertext= "Undefined Subystem", subtext=""),
+        dict(id="placeholder3",x=1700, y=1150, base_deg=45, surface=framebuffer, scale=scale, color=color, supertext= "Undefined Subystem", subtext="")
+    ]
     
+    # This takes the dynamo configs and creates the actual Dynamo objects.
+    dynamos = [
+        windows.Dynamo(
+            windows.WidgetConfig(
+                surface=framebuffer,
+                x=cfg["x"],
+                y=cfg["y"],
+                obj_width=0,
+                obj_height=0,
+                scale=scale,
+                color=(255, 0, 0),
+                text="test text",
+                line_width=5,
+                font_size=(60)
+            ),
+            cfg["supertext"],
+            cfg["subtext"],
+            dynamo_system_status[cfg["id"]],
+            cfg["base_deg"],
+        )
+        for cfg in dynamo_configs
+    ]
 
-    def draw_text_topleft(txt, x, y, color_=(255,255,255), size=30, target=None):
-        font_scaled = pygame.font.Font(font_path, int(size*((scale_x+scale_y)/2)))
-        surface     = font_scaled.render(str(txt), True, color_).convert_alpha()
-        tx = int(x*scale_x)
-        ty = int(y*scale_y)
-        if target is None:
-            screen.blit(surface, (tx, ty))
-        else:
-            target.blit(surface, (tx, ty))
-        return surface
-    
-    def render_textrect(
-        text,
-        x, y,
-        width, height,
-        size,
-        color,
-        target,
-        font_path=font_path
-    ):
-        # Create font
-        font = pygame.font.Font(font_path, size)
+    # Add new widget configs here to add new widgets to the screen.
 
-        # Word wrap text into a list of lines
-        words = text.split(" ")
-        lines = []
-        current = ""
+    widget_statuses = {
+        "btc_price": None,
+        "eth_price": None,
+        "sol_price": None,
+        "temp"     : None,
+        "feelslike": None,
+        "humidity" : None,
+        "wind"     : None,
+        "wind_dir" : None,
+        "weather"  : None,
+        "days"     : None
+    }
 
-        for word in words:
-            test = current + word + " "
-            if font.size(test)[0] <= width:
-                current = test
-            else:
-                lines.append(current)
-                current = word + " "
-        lines.append(current)
+    widget_configs = [
+        #Basic Information Box
+        dict(x=145, y=170, obj_width=850, obj_height=500, surface=framebuffer, scale=scale, color=color,
+             text=
+             "BTC: {btc_price}  ETH: {eth_price} SOL: ${sol_price} \n" \
+             "\n" \
+             "Temperature: {temp}°F  --  Feels Like: {feelslike}°F\n" \
+             "Humidity: {humidity}% \n" \
+             "Wind: {wind} mph {wind_direction} -- Weather: {weather}\n" \
+             "\n\nUptime: {days} days \n",
+             fontsize = 55),
+        
+        #Voice Input Box
+        dict(x=60, y=735, obj_width=1500, obj_height=150, surface=framebuffer, scale=scale, color=color,
+             id="voice_cmd", 
+             text="\"Butler, water the Monstera...\"", 
+             fontsize = 60),
 
-        # Create the text block surface
-        surf = pygame.Surface((width, height), pygame.SRCALPHA)
+        #Voice Response Box
+        dict(x=60, y=900, obj_width=1500, obj_height=450, surface=framebuffer, scale=scale, color=color, 
+             id="voice_resp",
+             text="Of course sir, the Monstera has been watered.", 
+             fontsize = 60),
+        
+        #Portrait Box
+        dict(x=1073, y=170, obj_width=415, obj_height=426, surface=framebuffer, scale=scale, color=color, text="", fontsize=0, line_width=8),
+    ]
 
-        line_height = font.get_linesize()
-        ty = 0
-
-        for line in lines:
-            if ty + line_height > height:
-                break
-            text_surf = font.render(line, True, color)
-            surf.blit(text_surf, (0, ty))
-            ty += line_height
-
-        # Blit to target surface at (x, y)
-        target.blit(surf, (x, y))
-
-        return surf
+    # This takes the widget configs and creates the actual Widget objects.
+    widgets = [
+        windows.Widget(
+            windows.WidgetConfig(
+                surface=framebuffer,
+                x=cfg["x"],
+                y=cfg["y"],
+                obj_width=cfg["obj_width"],
+                obj_height=cfg["obj_height"],
+                scale=scale,
+                color=cfg["color"],
+                text=cfg["text"],
+                line_width=cfg.get("line_width", 5),
+                font_size=cfg["fontsize"]
+            )
+        )
+        for cfg in widget_configs
+    ]
 
 
     #character = objl.load_obj_wire( "InfoPanel/butlerv3.obj", keep_edges="feature", # try "boundary" or "all" 
@@ -366,15 +270,19 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
                     last_response = msg[2]
 
         # --- RENDER THE FRAME --- 
-        framebuffer.fill((0, 1, 0))  # draw to off-screen
-        # replace every 'screen' draw call with 'framebuffer' for your content:
+        framebuffer.fill((0, 1, 0)) 
         static_drawings(framebuffer, base_w, base_h, scale_x, scale_y, circle_time, scale)
-
-        # ... monkey head, text, 3D render, etc ...
         second = int(time.strftime("%S"))
         dy = 10 if second % 2 == 0 else 0
         mb_base_x = base_w / 3.2
         mb_base_y = base_h / 2 + dy
+
+        # Update Dynamo Statuses Here.
+        dynamo_system_status["mqtt"]         = 1 #if (second >= 0) else 0  #placeholder code to simulate status changes. replace with actual
+        dynamo_system_status["panels"]       = 1 #if (second >= 10) else 0
+        dynamo_system_status["waterer"]      = 1 #if (second >= 20) else 0
+        dynamo_system_status["placeholder2"] = 1 #if (second >= 30) else 0
+        dynamo_system_status["placeholder3"] = 1 #if (second >= 40) else 0
 
         debug = False
         if debug:
@@ -385,60 +293,34 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         #draw_text_topleft(f"Last command:  {last_command}",  75, 740, color, 36, target=framebuffer)
         #draw_text_topleft(f"Last response: {last_response}", 75, 900, color, 36, target=framebuffer)
 
-        #def render_textrect(text, font, rect, x, y, color_=(255,255,255), size=30, target=None):
-        #font_scaled = pygame.font.Font(font_path, int(size*((scale_x+scale_y)/2)))
+        # Draw Widgets to the screen
+        for d, cfg in zip(dynamos, dynamo_configs):
+            d.system_status = dynamo_system_status[cfg["id"]]
+            d.subtext = "online" if d.system_status == 1 else "offline"
+            if d.system_status == 1:
+                d.degrees = (d.degrees + 4) % 360
+            d.draw_dynamo()
 
-        #Chat Response Rectangle
+        for w, cfg in zip(widgets, widget_configs):
+                w.drawCenteredRect()
+                if cfg.get("id") == "voice_cmd":
+                    w.createTextArea(last_command)
+                elif cfg.get("id") == "voice_resp":
+                    w.createTextArea(last_response)
+                else:
+                    w.createTextArea()
 
-        #font_scaled = pygame.font.Sys(font_path, int(30*((scale_x+scale_y)/2)))
-        font_scaled = pygame.font.Font(font_path, int(30 * ((scale_x + scale_y) / 2)))
 
-        r_chat_rect_base_x, r_chat_rect_base_y = base_w/3.15, base_h/1.28
-        r_chat_rect_base_w, r_chat_rect_base_h = 1500, 450
-        r_chat_scaled_rect_x, r_chat_scaled_rect_y = int(r_chat_rect_base_x*scale_x - (r_chat_rect_base_w*scale_x)/2), int(r_chat_rect_base_y*scale_y - (r_chat_rect_base_h*scale_y)/2)
-        r_chat_scaled_rect_w, r_chat_scaled_rect_h = int(r_chat_rect_base_w*scale_x), int(r_chat_rect_base_h*scale_y)
-        wrap_rect = pygame.Rect(r_chat_scaled_rect_x, r_chat_scaled_rect_y, r_chat_scaled_rect_w, r_chat_scaled_rect_h)
-
-        #render_textrect(f"Last command:  {last_command}",  font_scaled, wrap_rect, 75, 740, color, 36, target=framebuffer)
-        #render_textrect(f"Last response: {last_response}", font_scaled, wrap_rect, 75, 900, color, 36, target=framebuffer)
-       
-        #scale_x = screen_width / base_w
-        #scale_y = screen_height / base_h
-        render_textrect(
-            f"{last_command}",
-            #x = 65  * (scale_x),
-            #y = 550 * (scale_y*2),
-            x = int(screen_width / 29.5384615),
-            y = int(screen_height / 1.96363636)+10,
-            width  = 1125,
-            height = 200,
-            size   = 50,
-            color  = color,
-            target = framebuffer
-        )
-
-        render_textrect(
-            f"{last_response}",
-            #x = 65  * (scale_x),
-            #y = 675 * (scale_y*2),
-            x = int(screen_width / 29.5384615),
-            y = int(screen_height / 1.6)+10,
-            width  = 1125,
-            height = 300,
-            size   = 50,
-            color  = color,
-            target = framebuffer
-        )
-        # renderer.draw(
-        #     framebuffer,
-        #     character,
-        #     model_pos     = (0.0, -0.1, 3.2),
-        #     model_rot     = (0, angle*0.9, 0),
-        #     model_scale   = 3.5,
-        #     camera_pos    = (0, 0, 0),
-        #     camera_target = (0, 0, 1),
-        #     zsort         = True
-        # )
+        #renderer.draw(
+        #    framebuffer,
+        #    character,
+        #    model_pos     = (0.0, -0.1, 3.2),
+        #    model_rot     = (0, mob_angle*0.9, 0),
+        #    model_scale   = 3.5,
+        #    camera_pos    = (0, 0, 0),
+        #    camera_target = (0, 0, 1),
+        #    zsort         = True
+        #)
         # def draw_mouse_coordinates(surface):
         #     x, y = pygame.mouse.get_pos()
         #     text = font_scaled.render(f"({x}, {y})", True, (255, 255, 255))
@@ -446,7 +328,8 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
         # draw_mouse_coordinates(framebuffer)
 
         # === POST FX on a copy (so we can reuse framebuffer if needed) ===
-        post = framebuffer.copy()
+        post = framebuffer#.copy()
+        #last_frame = post
         fx.add_bloom(post, strength=1, down=0.45)
         #post = fx.apply_persistence(last_frame, post, alpha=80)
         post.blit(grille_surf,   (0, 0))
@@ -458,9 +341,7 @@ def run_info_panel_gui(cmd_queue): #The main Pygame loop. Polls 'cmd_queue' for 
 
         clock.tick(60)
         circle_time += 1
-        #angle += 0.01
-
-        
+        mob_angle += 0.01
 
     pygame.quit()
     sys.exit()

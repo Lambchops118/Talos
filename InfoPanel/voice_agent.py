@@ -3,6 +3,7 @@ import os
 import time
 import wave
 import json
+import audioop
 import boto3
 import openai
 #import whisper
@@ -14,6 +15,7 @@ import speech_recognition as sr
 from   concurrent.futures import ThreadPoolExecutor
 
 import tasks
+from messages import Message, VoicePayload
 
 load_dotenv()
 
@@ -104,10 +106,20 @@ def play_audio(filename): #Plays the WAV from AWS Polly then deletes the file.
 
 
 #Experiment with whisper API
-def recognition_callback(recognizer, audio_data, processing_queue):
+def recognition_callback(recognizer, audio_data, central_queue):
     print("Recognition callback triggered.")
     try:
         print("Trying recognition with Whisper...")
+        raw_audio = audio_data.get_raw_data()
+        sample_width = audio_data.sample_width or 2
+        sample_rate  = audio_data.sample_rate  or 16000
+
+        rms = audioop.rms(raw_audio, sample_width)
+        duration = len(raw_audio) / float(sample_rate * sample_width) if sample_rate and sample_width else 0
+        if rms < 300 or duration < 0.35:  # skip silence/very short noise
+            print(f"Skipping low-energy audio (rms={rms}, dur={duration:.2f}s)")
+            return
+
         wav_bytes = audio_data.get_wav_data()
         audio_file = io.BytesIO(wav_bytes)
         audio_file.name = "speech.wav"  # needed for content-type detection
@@ -116,17 +128,21 @@ def recognition_callback(recognizer, audio_data, processing_queue):
             model="whisper-1",
             file=audio_file,
             response_format="text",  # returns plain text
-            # language="en",  # optionally lock language
+            language="en",  # lock language to reduce hallucinations
+            temperature=0,
         )
-        text_spoken = whisper_text.lower()
+        text_spoken = whisper_text.strip().lower()
+        if not text_spoken:
+            print("No transcription returned.")
+            return
         print(f"User said: {text_spoken}")
 
         if text_spoken.startswith(WAKE_WORD):
             command = text_spoken[len(WAKE_WORD):].strip()
             print(f"Command received: {command}")
             if command:
-                processing_queue.put(command)
-                print(f"Command '{command}' added to processing queue.")
+                central_queue.put(Message(type="voice_cmd", payload=VoicePayload(command)))
+                print(f"Command '{command}' added to central queue.")
     except sr.UnknownValueError:
         print("Could not understand the audio.")
     except sr.RequestError as e:
@@ -135,34 +151,33 @@ def recognition_callback(recognizer, audio_data, processing_queue):
         print(f"Unexpected Error: {e}")
 
 # =============== START BACKGROUND LISTENING ===============
-def run_voice_recognition(processing_queue): #Sets up background listening in a new thread. processing_queue is passed in.
+def run_voice_recognition(central_queue): #Sets up background listening in a new thread. central_queue is passed in.
     mic = sr.Microphone()
     print("Microphone initialized.")
     with mic as source:
-        r.adjust_for_ambient_noise(source, duration=0.5) # adjust for ambient noise for 0.5 seconds
-        r.dynamic_energy_threshold = True
-        #r.pause_threshoold         = 1
-        #r.non_speaking_duration    = 0.8
-        # Optionally tune:
-        #r.energy_threshold = 300  # adjust empirically. At this point it has calibrated for ambient noise.
+        r.adjust_for_ambient_noise(source, duration=1.0) # adjust for ambient noise
+        r.dynamic_energy_threshold = False
+        r.energy_threshold         = 500  # tune as needed for your mic/room
+        r.pause_threshold          = 0.6
+        r.non_speaking_duration    = 0.4
         print("Adjusted for ambient noise.")
 
-    def callback_wrapper(recognizer, audio_data): #Provide a lambda so we can pass processing_queue into the callback
-        recognition_callback(recognizer, audio_data, processing_queue)
+    def callback_wrapper(recognizer, audio_data): #Provide a lambda so we can pass central_queue into the callback
+        recognition_callback(recognizer, audio_data, central_queue)
 
     stop_listening = r.listen_in_background(mic, callback_wrapper) #Listen in the background
     print("Background listening started.")
     return stop_listening
 
 
-def handle_command(command, gui_queue): # Worker thread that processes commands recognized by the speech callback. Does Gpt interaction, function exec, TTS synthesis, and playback.
+def handle_command(command, gui_queue, state_snapshot="no recent status"): # Worker thread that processes commands recognized by the speech callback. Does Gpt interaction, function exec, TTS synthesis, and playback.
     print(f"Handling command: {command}") # Log the command being handled
     try:
         print("Creating OpenAI chat completion...")
         response = client.chat.completions.create(
             model    = "gpt-4-0613", # Using function-calling capable model
             messages = [
-                {"role": "system", "content": indoctrination}, # System prompt
+                {"role": "system", "content": f"{indoctrination}\n\nContext: {state_snapshot}"}, # System prompt with local context
                 {"role": "user",   "content": command}         # User command
             ],
             functions     = tasks.functions, # Function definitions
@@ -207,6 +222,23 @@ def handle_command(command, gui_queue): # Worker thread that processes commands 
                     max_tokens  = 150
                 )
                 response_text = followup.choices[0].message.content.strip()
+            
+            elif function_name == "toggle_fan":
+                result   = tasks.toggle_fan(**parsed_args)
+                followup = client.chat.completions.create(
+                    model="gpt-4-0613",
+                    messages=[
+                        {"role": "system", "content": indoctrination},
+                        {"role": "user", "content": command},
+                        {"role": "assistant", "function_call": {"name": function_name, "arguments": function_args}},
+                        {"role": "function", "name": function_name, "content": result}
+                    ],
+                    temperature = 0.5,
+                    max_tokens  = 150
+                )
+                response_text = followup.choices[0].message.content.strip()
+
+
                 print(f"Function '{function_name}' executed with result: {result}")
 
             else:
@@ -259,3 +291,8 @@ def process_commands(processing_queue, gui_queue): #Continuously read commands f
             if command is None:
                 break # Exit signal
             executor.submit(handle_command, command, gui_queue) # Submit command to thread pool
+
+
+def handle_command_with_context(command, gui_queue, state_snapshot):
+    """Wrapper so router can pass in a context snapshot."""
+    handle_command(command, gui_queue, state_snapshot)
