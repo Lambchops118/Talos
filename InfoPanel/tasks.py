@@ -2,8 +2,9 @@
 import os
 import time
 import tv_control
+from datetime import datetime
 from   pyowm import OWM
-from   messages import Message
+from   messages import Message, VoicePayload
 from   pycoingecko import CoinGeckoAPI
 from   datetime import datetime
 from   zoneinfo import ZoneInfo
@@ -61,20 +62,20 @@ functions = [
         }
     },
 
-    {
-        "name": "morning_motd",
-        "description": "Return the morning message of the day including weather and time.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "weather": {
-                    "type": "string",
-                    "description": "The current weather summary."
-                }
-            },
-            "required": ["room"]
-        }
-    },
+    # {
+    #     "name": "morning_motd",
+    #     "description": "Return the morning message of the day including weather and time.",
+    #     "parameters": {
+    #         "type": "object",
+    #         "properties": {
+    #             "weather": {
+    #                 "type": "string",
+    #                 "description": "The current weather summary."
+    #             }
+    #         },
+    #         "required": ["room"]
+    #     }
+    # },
 
     {
         "name": "toggle_fan",
@@ -101,8 +102,8 @@ def search_web(query):
 def print_directions():
     None
 
-def morning_motd():
-    None
+#def morning_motd():
+    #None
     
 
 def water_plants(pot_number):
@@ -205,6 +206,43 @@ def update_dynamo_information(gui_queue, central_queue=None):
     None
 
 
+# VOICE FUNCTIONS #####################################################################################################################################
+def morning_report_job(gui_queue, central_queue=None):
+    owm = OWM(open_weather_api_key)
+    mgr = owm.weather_manager()
+    observation = mgr.weather_at_place(city)
+    weather = observation.weather
+    temp_data = weather.temperature("fahrenheit")
+
+    temp=round(temp_data["temp"])
+    feelslike=round(temp_data["feels_like"])
+    weather=weather.detailed_status
+
+    now = datetime.now()
+    time_str = now.strftime("%I:%M %p").lstrip("0")
+    day_str = now.strftime("%A")
+    date_str = now.strftime("%m-%d-%y")
+
+    if central_queue is None:
+        return
+    central_queue.put(
+        Message(
+            type="voice_cmd",
+            payload=VoicePayload(
+            f"[Generate a morning report for the following data. This is not a spoken input, this is a system prompt]" \
+            
+            f"time: {time_str}" \
+            f"day: {day_str}" \
+            f"Temperature: {temp} deg F" \
+            f"feels like: {feelslike} deg F" \
+            f"weather: {weather}" \
+            f"calendar: None" \
+            f"Date: {date_str}" \
+            )
+        )
+    )
+
+
 
 # Start the chron job scheduler ########################################################################################################################
 def push_status(central_queue, **values):
@@ -261,6 +299,14 @@ def start_scheduler(gui_queue, central_queue=None):
         trigger  = CronTrigger(minute="*/1"), # Every 1 Minute
         args     = [gui_queue, central_queue],
         id       = "update_infopane_information",
+        replace_existing = True,
+    )
+
+    scheduler.add_job(
+        morning_report_job,
+        trigger  = CronTrigger(hour=7, minute=30), 
+        args     = [gui_queue, central_queue],
+        id       = "morning_report_job",
         replace_existing = True,
     )
 
