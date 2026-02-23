@@ -1,24 +1,32 @@
 #import poll_apis
+import os
+import time
 import tv_control
+from   pyowm import OWM
+from   messages import Message
+from   pycoingecko import CoinGeckoAPI
 from   datetime import datetime
 from   zoneinfo import ZoneInfo
 import paho.mqtt.client as mqtt
 from   apscheduler.triggers.cron import CronTrigger
 from   apscheduler.schedulers.background import BackgroundScheduler
 
-TZ = ZoneInfo("America/New_York")  # pick your local tz
-BROKER = "192.168.1.160"
-PORT   = 1883
+TZ       = ZoneInfo("America/New_York")  # pick your local tz
+BROKER   = "192.168.1.160"
+PORT     = 1883
+cg       = CoinGeckoAPI()
+coins    = ["bitcoin", "ethereum", "solana"]
+currency = "usd"
+city     = "Ellicott City,MD,US"
+open_weather_api_key = os.getenv("OPEN_WEATHER_API_KEY")
 
-#Cast these to global variables so they can be called from API every 15 mins, but written out on screen at update rate.
-global bitcoin_price
-global ethereum_price
-global ripple_price
-global solana_price
-# bitcoin_price  = poll_apis.get_bitcoin()
-# ethereum_price = poll_apis.get_ethereum()
-# ripple_price   = poll_apis.get_ripple()
-# solana_price   = poll_apis.get_solana()
+def degrees_to_compass(deg):
+    directions = [
+        "N","NNE","NE","ENE","E","ESE","SE","SSE",
+        "S","SSW","SW","WSW","W","WNW","NW","NNW"
+    ]
+    idx = int((deg + 11.25) / 22.5) % 16
+    return directions[idx]
 
 # =============== FUNCTION DICTIONARY ====================
 functions = [
@@ -86,25 +94,12 @@ functions = [
 
 # =============== FUNCTIONS ========================================================================================
 
-def get_weather():
-    None
-
-def get_time():
-    None
 
 def search_web(query):
     None
 
 def print_directions():
     None
-
-#def get_crypto_prices():
-    #bitcoin_price = poll_apis.get_bitcoin()
-    #ethereum_price = poll_apis.get_ethereum()
-    #ripple_price = poll_apis.get_ripple()
-    #solana_price = poll_apis.get_solana()
-
-    return bitcoin_price, ethereum_price, ripple_price, solana_price
 
 def morning_motd():
     None
@@ -146,10 +141,10 @@ def toggle_fan(status):
 # ==== SPECIFIC TIME BASED FUNCTIONS ==================================================================================
 
 #Define Time based jobs
-def debug_job(gui_queue):
+def debug_job(gui_queue, central_queue=None):
     print("DEBUG JOB ACTIVATED")
 
-def daily_forecast_job(gui_queue): # We can probably replace qui_queue with processing_queue if we want TTS playback too.
+def daily_forecast_job(gui_queue, central_queue=None): # We can probably replace qui_queue with processing_queue if we want TTS playback too.
     today = datetime.now(TZ).strftime("%Y-%m-%d")
     msg   = f"Forecast for {today}: (placeholder) sunny with a chance of bananas."
 
@@ -178,8 +173,44 @@ def dim_display(): #This will require a script on the PI to listen on this MQTT 
     # client.disconnect()
     tv_control.night_sleep()
 
-# Start the chron job scheduler
-def start_scheduler(gui_queue):
+def update_infopanel_information(gui_queue, central_queue=None):
+    # fetch data here
+    # This will NOT BLOCK infopanel GUI or voice commands because its in a separate thread
+    price_data = cg.get_price(ids=coins, vs_currencies=currency)
+    owm = OWM(open_weather_api_key)
+    mgr = owm.weather_manager()
+    observation = mgr.weather_at_place(city)
+    weather = observation.weather
+
+    temp_data = weather.temperature("fahrenheit")
+    wind_data = weather.wind(unit="miles_hour")
+
+    push_status(
+        central_queue,
+        btc_price=price_data["bitcoin"][currency],
+        eth_price=price_data["ethereum"][currency],
+        sol_price=price_data["solana"][currency],
+
+        temp=round(temp_data["temp"]),
+        feelslike=round(temp_data["feels_like"]),
+        humidity=round(weather.humidity),
+        wind=round(wind_data.get("speed")),
+        wind_dir=degrees_to_compass(wind_data.get("deg")),
+        weather="ERR",
+
+        uptime = "ERR"
+    )
+
+
+
+# Start the chron job scheduler ########################################################################################################################
+def push_status(central_queue, **values):
+    if central_queue is None:
+        return
+    central_queue.put(Message(type="ui", payload=("STATUS", values)))
+
+
+def start_scheduler(gui_queue, central_queue=None):
     scheduler = BackgroundScheduler(
         timezone     = TZ,
         job_defaults = {
@@ -193,7 +224,7 @@ def start_scheduler(gui_queue):
     scheduler.add_job( 
         debug_job,
         trigger  = CronTrigger(hour=13, minute=31), # Daily at 7:30 AM
-        args     = [gui_queue],
+        args     = [gui_queue, central_queue],
         id       = "debug_task",
         replace_existing = True,
     )
@@ -201,7 +232,7 @@ def start_scheduler(gui_queue):
     scheduler.add_job(
         daily_forecast_job,
         trigger  = CronTrigger(hour=20, minute=36), # Daily at 7:30 AM
-        args     = [gui_queue],
+        args     = [gui_queue, central_queue],
         id       = "daily_forecast",
         replace_existing = True,
     )
@@ -219,6 +250,14 @@ def start_scheduler(gui_queue):
         trigger  = CronTrigger(hour=23, minute=0), # Daily at 11:00 PM
         args     = None,
         id       = "dim_display",
+        replace_existing = True,
+    )
+
+    scheduler.add_job(
+        update_infopanel_information,
+        trigger  = CronTrigger(minute="*/1"), # Every 1 Minute
+        args     = [gui_queue, central_queue],
+        id       = "update_infopane_information",
         replace_existing = True,
     )
 

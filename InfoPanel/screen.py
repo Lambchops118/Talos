@@ -192,19 +192,19 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
         "wind"     : None,
         "wind_dir" : None,
         "weather"  : None,
-        "days"     : None
+        "uptime"     : None
     }
 
     widget_configs = [
         #Basic Information Box
         dict(x=145, y=170, obj_width=850, obj_height=500, surface=framebuffer, scale=scale, color=color,
              text=
-             "BTC: {btc_price}  ETH: {eth_price} SOL: ${sol_price} \n" \
+             "BTC: ${btc_price}  ETH: ${eth_price} SOL: ${sol_price} \n" \
              "\n" \
-             "Temperature: {temp}°F  --  Feels Like: {feelslike}°F\n" \
+             "Temperature: {temp}°F   Feels Like: {feelslike}°F\n" \
              "Humidity: {humidity}% \n" \
-             "Wind: {wind} mph {wind_direction} -- Weather: {weather}\n" \
-             "\n\nUptime: {days} days \n",
+             "Wind: {wind}mph  {wind_direction}\n Weather: {weather}\n" \
+             "\nUptime: {uptime} days \n",
              fontsize = 55),
         
         #Voice Input Box
@@ -268,6 +268,10 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
                     # msg structure: ("VOICE_CMD", recognized_command, gpt_response_text)
                     last_command  = msg[1]
                     last_response = msg[2]
+                elif msg[0] == "STATUS":
+                    # msg structure: ("STATUS", {"key": value, ...})
+                    if isinstance(msg[1], dict):
+                        widget_statuses.update(msg[1])
 
         # --- RENDER THE FRAME --- 
         framebuffer.fill((0, 1, 0)) 
@@ -308,7 +312,9 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
                 elif cfg.get("id") == "voice_resp":
                     w.createTextArea(last_response)
                 else:
-                    w.createTextArea()
+                    safe = {k: ("--" if v is None else v) for k, v in widget_statuses.items()}
+                    safe["wind_direction"] = safe.get("wind_dir", "--")
+                    w.createTextArea(cfg["text"].format(**safe))
 
 
         #renderer.draw(

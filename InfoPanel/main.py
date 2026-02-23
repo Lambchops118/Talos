@@ -25,7 +25,7 @@ if __name__ == "__main__":
     router_thread  = threading.Thread(target=router.router_loop, args=(central_queue, gui_queue), daemon=True)
     router_thread.start()
 
-    scheduler = tasks.start_scheduler(gui_queue)
+    scheduler = tasks.start_scheduler(gui_queue, central_queue)
 
     try:
         if fp == 0:
