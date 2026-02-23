@@ -196,10 +196,13 @@ def update_infopanel_information(gui_queue, central_queue=None):
         humidity=round(weather.humidity),
         wind=round(wind_data.get("speed")),
         wind_dir=degrees_to_compass(wind_data.get("deg")),
-        weather="ERR",
+        weather=weather.detailed_status,
 
         uptime = "ERR"
     )
+
+def update_dynamo_information(gui_queue, central_queue=None):
+    None
 
 
 

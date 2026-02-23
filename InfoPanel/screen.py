@@ -204,7 +204,7 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
              "Temperature: {temp}°F   Feels Like: {feelslike}°F\n" \
              "Humidity: {humidity}% \n" \
              "Wind: {wind}mph  {wind_direction}\n Weather: {weather}\n" \
-             "\nUptime: {uptime} days \n",
+             "\nUptime: {uptime} days | Net Worth: $101,749",
              fontsize = 55),
         
         #Voice Input Box
