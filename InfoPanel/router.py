@@ -1,10 +1,8 @@
 import queue
-from typing import Optional
-
-from messages import Message, StatusPayload, VoicePayload
-from state_store import StateStore
 import voice_agent
-
+from   typing import Optional
+from state_store import StateStore
+from messages import Message, StatusPayload, VoicePayload
 
 def router_loop(central_queue: queue.Queue, gui_queue: queue.Queue, stop_signal: Optional[object] = None):
     """

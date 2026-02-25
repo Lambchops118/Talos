@@ -48,7 +48,6 @@ def on_message(client, userdata, msg):
         tv_power_off()
     elif payload == "1":
         tv_power_on()
-        time.sleep(8)
         switch_to_hdmi2()
 
 def main():    

@@ -4,7 +4,7 @@ import requests
 from datetime import datetime
 
 api_key = "c5bbe0c6b2d7ab5f9ae92a9441d47253"
-city = "New York"
+city    = "New York"
 
 
 def get_weather_report(api_key, city):

@@ -1,6 +1,5 @@
 import time
 
-
 class StateStore:
     """In-memory store for status/event data with simple freshness decay."""
 

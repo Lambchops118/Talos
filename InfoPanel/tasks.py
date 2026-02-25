@@ -1,14 +1,12 @@
 #import poll_apis
 import os
-import time
 import tv_control
-from datetime import datetime
 from   pyowm import OWM
-from   messages import Message, VoicePayload
-from   pycoingecko import CoinGeckoAPI
 from   datetime import datetime
 from   zoneinfo import ZoneInfo
 import paho.mqtt.client as mqtt
+from   pycoingecko import CoinGeckoAPI
+from   messages import Message, VoicePayload
 from   apscheduler.triggers.cron import CronTrigger
 from   apscheduler.schedulers.background import BackgroundScheduler
 
@@ -177,27 +175,27 @@ def dim_display(): #This will require a script on the PI to listen on this MQTT 
 def update_infopanel_information(gui_queue, central_queue=None):
     # fetch data here
     # This will NOT BLOCK infopanel GUI or voice commands because its in a separate thread
-    price_data = cg.get_price(ids=coins, vs_currencies=currency)
-    owm = OWM(open_weather_api_key)
-    mgr = owm.weather_manager()
+    price_data  = cg.get_price(ids=coins, vs_currencies=currency)
+    owm         = OWM(open_weather_api_key)
+    mgr         = owm.weather_manager()
     observation = mgr.weather_at_place(city)
-    weather = observation.weather
+    weather     = observation.weather
 
     temp_data = weather.temperature("fahrenheit")
     wind_data = weather.wind(unit="miles_hour")
 
     push_status(
         central_queue,
-        btc_price=price_data["bitcoin"][currency],
-        eth_price=price_data["ethereum"][currency],
-        sol_price=price_data["solana"][currency],
+        btc_price = price_data["bitcoin"][currency],
+        eth_price = price_data["ethereum"][currency],
+        sol_price = price_data["solana"][currency],
 
-        temp=round(temp_data["temp"]),
-        feelslike=round(temp_data["feels_like"]),
-        humidity=round(weather.humidity),
-        wind=round(wind_data.get("speed")),
-        wind_dir=degrees_to_compass(wind_data.get("deg")),
-        weather=weather.detailed_status,
+        temp      = round(temp_data["temp"]),
+        feelslike = round(temp_data["feels_like"]),
+        humidity  = round(weather.humidity),
+        wind      = round(wind_data.get("speed")),
+        wind_dir  = degrees_to_compass(wind_data.get("deg")),
+        weather   = weather.detailed_status,
 
         uptime = "ERR"
     )
@@ -208,20 +206,20 @@ def update_dynamo_information(gui_queue, central_queue=None):
 
 # VOICE FUNCTIONS #####################################################################################################################################
 def morning_report_job(gui_queue, central_queue=None):
-    owm = OWM(open_weather_api_key)
-    mgr = owm.weather_manager()
+    owm         = OWM(open_weather_api_key)
+    mgr         = owm.weather_manager()
     observation = mgr.weather_at_place(city)
-    weather = observation.weather
-    temp_data = weather.temperature("fahrenheit")
+    weather     = observation.weather
+    temp_data   = weather.temperature("fahrenheit")
 
-    temp=round(temp_data["temp"])
-    feelslike=round(temp_data["feels_like"])
-    weather=weather.detailed_status
+    temp        = round(temp_data["temp"])
+    feelslike   = round(temp_data["feels_like"])
+    weather     = weather.detailed_status
 
-    now = datetime.now()
-    time_str = now.strftime("%I:%M %p").lstrip("0")
-    day_str = now.strftime("%A")
-    date_str = now.strftime("%m-%d-%y")
+    now         = datetime.now()
+    time_str    = now.strftime("%I:%M %p").lstrip("0")
+    day_str     = now.strftime("%A")
+    date_str    = now.strftime("%m-%d-%y")
 
     if central_queue is None:
         return
