@@ -14,6 +14,17 @@ from typing import Callable, Deque, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
+MODULE_DIR = Path(__file__).resolve().parent
+DEFAULT_CALIBRATION_PATH = MODULE_DIR / "door_calibration.json"
+DEFAULT_EXPORT_DIR = MODULE_DIR / "output"
+CALIBRATION_FIELDS = (
+    "door_roi",
+    "doorway_region",
+    "interior_region",
+    "exterior_region",
+    "hinge_side",
+)
+
 
 class DoorState(Enum):
     OPEN = "open"
@@ -41,6 +52,7 @@ class DoorMonitorConfig:
     buffer_seconds: int = 30
     snippet_seconds: int = 5
     debug_display: bool = False
+    export_directory: Optional[str] = None
 
     # Regions are [x, y, w, h]
     door_roi: Tuple[int, int, int, int] = (430, 170, 370, 480)
@@ -48,6 +60,7 @@ class DoorMonitorConfig:
     interior_region: Tuple[int, int, int, int] = (780, 140, 480, 560)
     exterior_region: Tuple[int, int, int, int] = (120, 140, 330, 560)
     hinge_side: str = "left"  # "left" or "right"
+    calibration_path: Optional[str] = None
 
     door_motion_threshold: float = 12.0
     door_edge_change_threshold: float = 0.035
@@ -66,10 +79,48 @@ class DoorMonitorConfig:
     @classmethod
     def from_json(cls, path: str | Path) -> "DoorMonitorConfig":
         data = json.loads(Path(path).read_text(encoding="utf-8"))
+        for key in ("door_roi", "doorway_region", "interior_region", "exterior_region"):
+            if key in data and data[key] is not None:
+                data[key] = tuple(data[key])
         return cls(**data)
 
     def to_json(self, path: str | Path) -> None:
-        Path(path).write_text(json.dumps(self.__dict__, indent=2), encoding="utf-8")
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = path.with_suffix(f"{path.suffix}.tmp")
+        temp_path.write_text(json.dumps(self.__dict__, indent=2), encoding="utf-8")
+        temp_path.replace(path)
+
+    def calibration_file(self) -> Path:
+        if self.calibration_path:
+            return Path(self.calibration_path)
+        return DEFAULT_CALIBRATION_PATH
+
+    def load_calibration(self, path: str | Path | None = None) -> bool:
+        calibration_path = Path(path) if path is not None else self.calibration_file()
+        if not calibration_path.exists() or calibration_path.stat().st_size == 0:
+            return False
+
+        data = json.loads(calibration_path.read_text(encoding="utf-8"))
+        for key in ("door_roi", "doorway_region", "interior_region", "exterior_region"):
+            value = data.get(key)
+            if value is not None:
+                setattr(self, key, tuple(value))
+        hinge_side = data.get("hinge_side")
+        if hinge_side is not None:
+            self.hinge_side = str(hinge_side)
+        self.calibration_path = str(calibration_path)
+        return True
+
+    def save_calibration(self, path: str | Path | None = None) -> Path:
+        calibration_path = Path(path) if path is not None else self.calibration_file()
+        calibration_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {field: getattr(self, field) for field in CALIBRATION_FIELDS}
+        temp_path = calibration_path.with_suffix(f"{calibration_path.suffix}.tmp")
+        temp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        temp_path.replace(calibration_path)
+        self.calibration_path = str(calibration_path)
+        return calibration_path
 
 
 class FrameBuffer:
@@ -92,6 +143,27 @@ class FrameBuffer:
         cutoff = time.time() - seconds
         with self._lock:
             return [f.copy() for ts, f in self._buffer if ts >= cutoff]
+
+    def export_snippet(self, path: str | Path, fps: float, seconds: int = 5) -> Optional[str]:
+        frames = self.get_recent_snippet(seconds)
+        if not frames:
+            return None
+
+        output_path = Path(path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        height, width = frames[0].shape[:2]
+        writer = cv2.VideoWriter(
+            str(output_path),
+            cv2.VideoWriter_fourcc(*"mp4v"),
+            max(1.0, float(fps)),
+            (width, height),
+        )
+        try:
+            for frame in frames:
+                writer.write(frame)
+        finally:
+            writer.release()
+        return str(output_path)
 
     def save_snapshot(self, path: str | Path) -> bool:
         frame = self.get_latest_frame()
@@ -199,7 +271,9 @@ class DoorMonitor:
     def __init__(self, config: Optional[DoorMonitorConfig] = None) -> None:
         self.config = config or DoorMonitorConfig()
         self.logger = logging.getLogger(self.__class__.__name__)
+        self._load_calibration()
         self.frame_buffer = FrameBuffer(self.config.buffer_seconds, self.config.fps)
+        self.debug_frame_buffer = FrameBuffer(self.config.buffer_seconds, self.config.fps)
         self.event_queue: "queue.Queue[DoorEvent]" = queue.Queue()
 
         self._callbacks: List[Callable[[DoorEvent], None]] = []
@@ -223,6 +297,16 @@ class DoorMonitor:
         self._next_track_id = 1
         self._frame_count = 0
 
+    def _load_calibration(self) -> None:
+        calibration_path = self.config.calibration_file()
+        try:
+            loaded = self.config.load_calibration(calibration_path)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            self.logger.warning("Failed to load calibration from %s: %s", calibration_path, exc)
+            return
+        if loaded:
+            self.logger.info("Loaded calibration from %s", calibration_path)
+
     def register_callback(self, func: Callable[[DoorEvent], None]) -> None:
         self._callbacks.append(func)
 
@@ -244,6 +328,13 @@ class DoorMonitor:
     def get_recent_snippet(self, seconds: int = 5) -> List[np.ndarray]:
         return self.frame_buffer.get_recent_snippet(seconds)
 
+    def export_recent_debug_snippet(self, seconds: Optional[int] = None, save_to: str | Path | None = None) -> Optional[str]:
+        seconds = seconds or self.config.snippet_seconds
+        if save_to is None:
+            export_dir = Path(self.config.export_directory) if self.config.export_directory else DEFAULT_EXPORT_DIR
+            save_to = export_dir / f"snippet_{int(time.time() * 1000)}.mp4"
+        return self.debug_frame_buffer.export_snippet(save_to, fps=self.config.fps, seconds=seconds)
+
     def get_recent_events(self) -> List[DoorEvent]:
         with self._events_lock:
             return list(self._events)
@@ -252,14 +343,18 @@ class DoorMonitor:
         with self._lock:
             return self._door_state
 
-    def _create_capture(self) -> Optional[cv2.VideoCapture]:
-        cap = cv2.VideoCapture(self.config.camera_index, cv2.CAP_DSHOW)
+    @staticmethod
+    def _open_capture_device(config: DoorMonitorConfig) -> Optional[cv2.VideoCapture]:
+        cap = cv2.VideoCapture(config.camera_index, cv2.CAP_DSHOW)
         if not cap.isOpened():
             return None
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.config.frame_width)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config.frame_height)
-        cap.set(cv2.CAP_PROP_FPS, self.config.fps)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.frame_width)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.frame_height)
+        cap.set(cv2.CAP_PROP_FPS, config.fps)
         return cap
+
+    def _create_capture(self) -> Optional[cv2.VideoCapture]:
+        return self._open_capture_device(self.config)
 
     def _capture_loop(self) -> None:
         cap = None
@@ -296,11 +391,13 @@ class DoorMonitor:
             if self._frame_count % self.config.human_detection_stride == 0:
                 detections = self._detect_people(frame)
             self._update_tracks(frame, detections, timestamp)
+            debug_frame = frame.copy()
+            self._draw_debug(debug_frame)
+            self.debug_frame_buffer.add_frame(debug_frame, timestamp)
             self._reason_person_events(timestamp, frame)
 
             if self.config.debug_display:
-                self._draw_debug(frame)
-                cv2.imshow("door-monitor-debug", frame)
+                cv2.imshow("door-monitor-debug", debug_frame)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     self._stop_event.set()
 
@@ -546,7 +643,11 @@ class DoorMonitor:
             )
 
 
-def run_calibration(camera_index: int = 0, output_path: str = "door_calibration.json") -> None:
+def run_calibration(
+    camera_index: int = 0,
+    output_path: str | Path = DEFAULT_CALIBRATION_PATH,
+    config: Optional[DoorMonitorConfig] = None,
+) -> None:
     """
     Interactive calibration utility.
 
@@ -561,9 +662,11 @@ def run_calibration(camera_index: int = 0, output_path: str = "door_calibration.
 
     regions = ["door_roi", "doorway_region", "exterior_region", "interior_region"]
     captured: Dict[str, Tuple[int, int, int, int]] = {}
+    calibration_config = config or DoorMonitorConfig(camera_index=camera_index)
+    calibration_config.camera_index = camera_index
 
-    cap = cv2.VideoCapture(camera_index, cv2.CAP_DSHOW)
-    if not cap.isOpened():
+    cap = DoorMonitor._open_capture_device(calibration_config)
+    if cap is None:
         raise RuntimeError("Could not open camera for calibration")
 
     state = {
@@ -610,8 +713,19 @@ def run_calibration(camera_index: int = 0, output_path: str = "door_calibration.
             ex, ey = state["end"]
             cv2.rectangle(frame, (sx, sy), (ex, ey), (0, 200, 255), 2)
 
+        actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         prompt = "Done" if state["region_idx"] >= len(regions) else f"Draw: {regions[state['region_idx']]}"
         cv2.putText(frame, prompt, (15, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+        cv2.putText(
+            frame,
+            f"{actual_width}x{actual_height} @ {calibration_config.fps}fps",
+            (15, 60),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (255, 255, 255),
+            2,
+        )
         cv2.imshow("calibrate", frame)
 
         key = cv2.waitKey(1) & 0xFF
@@ -632,7 +746,8 @@ def run_calibration(camera_index: int = 0, output_path: str = "door_calibration.
         cfg.doorway_region = captured["doorway_region"]
         cfg.exterior_region = captured["exterior_region"]
         cfg.interior_region = captured["interior_region"]
-        cfg.to_json(output_path)
+        saved_path = cfg.save_calibration(output_path)
+        logging.info("Saved calibration to %s", saved_path)
 
 
 if __name__ == "__main__":

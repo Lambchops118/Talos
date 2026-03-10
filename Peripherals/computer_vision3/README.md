@@ -28,7 +28,7 @@ A simple boundary crossing or screen-edge appearance is intentionally insufficie
 Run interactive calibration and save JSON:
 
 ```bash
-python Peripherals/computer_vision_3/door_monitor.py
+python Peripherals/computer_vision3/door_monitor.py
 ```
 
 Calibration process:
@@ -42,14 +42,16 @@ Controls:
 
 - mouse drag: draw current rectangle
 - `r`: reset previous rectangle
-- `q`: quit
+- `q`: quit without saving unless all 4 regions were completed
 
-When complete, defaults are saved to `door_calibration.json` in the current working directory.
+When complete, calibration is saved to `Peripherals/computer_vision3/door_calibration.json`.
+`DoorMonitor` now auto-loads that file on startup if it exists and contains valid JSON.
+Calibration now opens the camera with the same configured frame width, frame height, and FPS as the monitor.
 
 ## Demo
 
 ```bash
-python Peripherals/computer_vision_3/demo.py
+python Peripherals/computer_vision3/demo.py
 ```
 
 Demo behavior:
@@ -57,7 +59,7 @@ Demo behavior:
 - starts background webcam capture thread,
 - prints `door_open`, `door_close`, `enter`, `exit` events,
 - renders debug window with ROIs, tracks, and door state,
-- retrieves recent snippet frames after traversal events,
+- exports a recent debug MP4 after `enter` / `exit` events,
 - stops cleanly on `Ctrl+C`.
 
 ## Integration API
@@ -68,6 +70,7 @@ Demo behavior:
 - `register_callback(func)`
 - `get_latest_frame()`
 - `get_recent_snippet(seconds=5)`
+- `export_recent_debug_snippet(seconds=5, save_to=None)`
 - `get_recent_events()`
 - `get_door_state()`
 - `event_queue` (`queue.Queue[DoorEvent]`) for thread-safe push integration

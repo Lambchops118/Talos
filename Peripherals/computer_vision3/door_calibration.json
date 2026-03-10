@@ -1,0 +1,27 @@
+{
+  "door_roi": [
+    552,
+    267,
+    139,
+    340
+  ],
+  "doorway_region": [
+    693,
+    297,
+    13,
+    309
+  ],
+  "interior_region": [
+    709,
+    299,
+    84,
+    314
+  ],
+  "exterior_region": [
+    652,
+    271,
+    37,
+    331
+  ],
+  "hinge_side": "left"
+}
