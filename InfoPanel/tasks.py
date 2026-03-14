@@ -142,13 +142,6 @@ def toggle_fan(status):
 #Define Time based jobs
 def debug_job(gui_queue, central_queue=None):
     print("DEBUG JOB ACTIVATED")
-
-def daily_forecast_job(gui_queue, central_queue=None): # We can probably replace qui_queue with processing_queue if we want TTS playback too.
-    today = datetime.now(TZ).strftime("%Y-%m-%d")
-    msg   = f"Forecast for {today}: (placeholder) sunny with a chance of bananas."
-
-    print(msg)
-    gui_queue.put(("VOICE_CMD", "daily forecast", msg)) #Bypass pygame in this thread and send to GUI via already established queue. 
     
 def wake_display(): #This will require a script on the PI to listen on this MQTT port and then send the CEC signal to the TV
     print("Waking Display.")
@@ -265,14 +258,6 @@ def start_scheduler(gui_queue, central_queue=None):
         trigger  = CronTrigger(hour=13, minute=31), # Daily at 7:30 AM
         args     = [gui_queue, central_queue],
         id       = "debug_task",
-        replace_existing = True,
-    )
-
-    scheduler.add_job(
-        daily_forecast_job,
-        trigger  = CronTrigger(hour=20, minute=36), # Daily at 7:30 AM
-        args     = [gui_queue, central_queue],
-        id       = "daily_forecast",
         replace_existing = True,
     )
 
