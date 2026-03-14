@@ -48,7 +48,7 @@ class DoorMonitorConfig:
     camera_index: int = 0
     frame_width: int = 1280
     frame_height: int = 720
-    fps: int = 15
+    fps: int = 60
     buffer_seconds: int = 30
     snippet_seconds: int = 5
     debug_display: bool = False
@@ -66,7 +66,7 @@ class DoorMonitorConfig:
     door_edge_change_threshold: float = 0.035
     door_state_stability_frames: int = 8
 
-    human_detection_stride: int = 3
+    human_detection_stride: int = 1
     human_detection_confidence: float = 0.45
     max_track_lost_frames: int = 20
     max_track_match_distance: float = 120.0
