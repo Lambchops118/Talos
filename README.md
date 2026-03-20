@@ -1,5 +1,9 @@
 # TALOS
 
+[![CI](https://github.com/Lambchops118/Talos/actions/workflows/ci.yml/badge.svg)](https://github.com/Lambchops118/Talos/actions/workflows/ci.yml)
+[![Latest Release](https://img.shields.io/github/v/release/Lambchops118/Talos)](https://github.com/Lambchops118/Talos/releases)
+[![Last Commit](https://img.shields.io/github/last-commit/Lambchops118/Talos)](https://github.com/Lambchops118/Talos/commits/main)
+
 TALOS is a home automation and voice-assistant project built around a Python host application, MQTT-connected peripherals, and a display-driven "Monkey Butler" interface.
 
 ## Project Layout
@@ -99,4 +103,3 @@ git tag -a v0.1.0 -m "Release v0.1.0"
 git push origin main
 git push origin v0.1.0
 ```
-
