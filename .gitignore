@@ -2,3 +2,21 @@
 .env.*
 InfoPanel/tasks.py
 tests/persistent_convo.py
+tests/__pycache__/ABD_functions_test.cpython-312.pyc
+tests/__pycache__/barrel_warp_test.cpython-312.pyc
+tests/__pycache__/cec.cpython-312.pyc
+tests/__pycache__/cec2.cpython-312.pyc
+tests/__pycache__/fonttest.cpython-312.pyc
+tests/__pycache__/main.cpython-312.pyc
+tests/__pycache__/main2.cpython-312.pyc
+tests/__pycache__/main3.cpython-312.pyc
+tests/__pycache__/main4.cpython-312.pyc
+tests/__pycache__/main5 - Copy.cpython-312.pyc
+tests/__pycache__/main5.cpython-312.pyc
+tests/__pycache__/main6.cpython-312.pyc
+tests/__pycache__/persistent_convo.cpython-312.pyc
+tests/__pycache__/phosphor_screen_test.cpython-312.pyc
+tests/__pycache__/publish_to_quad_pump.cpython-312.pyc
+tests/__pycache__/pygame_test.cpython-312.pyc
+tests/__pycache__/screen2.cpython-312.pyc
+tests/__pycache__/screen3.cpython-312.pyc
