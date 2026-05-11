@@ -251,12 +251,18 @@ def warp_crt(src_surf):
 class GpuCRT:
     def __init__(self, window_size=(GAME_W, GAME_H),
                  kx=1, ky=1, scan=1, vign=10, gamma=20.0, curv=1):
+        pygame.display.gl_set_attribute(pygame.GL_CONTEXT_MAJOR_VERSION, 3)
+        pygame.display.gl_set_attribute(pygame.GL_CONTEXT_MINOR_VERSION, 3)
+        pygame.display.gl_set_attribute(
+            pygame.GL_CONTEXT_PROFILE_MASK,
+            pygame.GL_CONTEXT_PROFILE_CORE,
+        )
         # Pygame GL window
         pygame.display.set_mode(window_size, DOUBLEBUF | OPENGL)
         self.w, self.h = window_size
 
         # ModernGL context
-        self.ctx = moderngl.create_context()
+        self.ctx = moderngl.create_context(require=330)
         self.ctx.enable(moderngl.BLEND)
 
         # Program
@@ -284,7 +290,7 @@ class GpuCRT:
         self.prog['u_scan'].value = scan
         self.prog['u_vign'].value = vign
         self.prog['u_gamma'].value = gamma
-        self.prog['u_texSize'].value = (GAME_W, GAME_H)
+        self.prog['u_texSize'].value = window_size
         self.prog['u_zoom'].value = 1.05  # try 1.08–1.18 depending on warp strength
 
     def _ensure_texture(self, size):
@@ -295,14 +301,16 @@ class GpuCRT:
             self.tex.filter = (moderngl.LINEAR, moderngl.LINEAR)
             self.tex.repeat_x = False
             self.tex.repeat_y = False
+            self.prog['u_texSize'].value = size
             self.prog['u_tex'].value = 0  # bound to tex unit 0
             self.tex.use(location=0)
 
     def draw_surface(self, src_surf):
-        """Upload src_surf (GAME_W x GAME_H) and draw warped to the GL backbuffer."""
+        """Upload src_surf and draw warped to the GL backbuffer."""
         # Pull pixels as RGB bytes; this is fast enough if the surface is display-format
+        size = src_surf.get_size()
         raw = pygame.image.tostring(src_surf, 'RGB', True)
-        self._ensure_texture((GAME_W, GAME_H))
+        self._ensure_texture(size)
         self.tex.use(location=0)
         self.tex.write(raw)
 

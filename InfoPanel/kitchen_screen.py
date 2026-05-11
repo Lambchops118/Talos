@@ -3,12 +3,13 @@
 
 import sys
 import pygame
+from pathlib import Path
 from   dotenv import load_dotenv; load_dotenv()
 
 #import InfoPanel.gears as gears
 import windows
 
-font_path     = r"C:\Users\aljac\Desktop\Talos\InfoPanel\VT323-Regular.ttf"
+font_path     = str(Path(__file__).resolve().parent / "VT323-Regular.ttf")
 #font          = pygame.font.SysFont(None, 24)
 screen_width  = 1920
 screen_height = 1080

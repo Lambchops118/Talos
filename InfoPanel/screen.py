@@ -3,6 +3,8 @@ import sys
 import time
 import queue
 import pygame
+import platform
+from pathlib import Path
 from   dotenv import load_dotenv; load_dotenv()
 
 import tasks
@@ -15,7 +17,7 @@ import moving_vector_portrait as vec3d
 
 import windows
 
-font_path = r"C:\Users\aljac\Desktop\Talos\InfoPanel\VT323-Regular.ttf"
+font_path = str(Path(__file__).resolve().parent / "VT323-Regular.ttf")
 
 # =============== PYGAME INFO PANEL ===============
 color         = (0, 255, 100)
@@ -30,6 +32,13 @@ RESOLUTIONS = {
 
 scale = 0.75
 FORCED_WINDOW_SIZE = RESOLUTIONS["1080P"]
+
+
+def choose_window_size(display_w, display_h):
+    forced_w, forced_h = FORCED_WINDOW_SIZE
+    window_w = min(forced_w, display_w)
+    window_h = min(forced_h, display_h)
+    return window_w, window_h
 
 def parse_base_resolution():
     if len(sys.argv) < 2:
@@ -54,9 +63,16 @@ def get_font(size, scale_x=1.0*scale, scale_y=1.0*scale):
     return _font_cache[key]
 
 
+def platform_time_formats():
+    if platform.system() == "Windows":
+        return "%A %#I:%M %p", "%B %#d, %Y"
+    return "%A %-I:%M %p", "%B %-d, %Y"
+
+
 def static_drawings(screen, base_w, base_h, scale_x, scale_y, circle_time, scale):
-    time_readable = time.strftime("%A %#I:%M %p")
-    date_readable = time.strftime("%B %#d, %Y")
+    time_format, date_format = platform_time_formats()
+    time_readable = time.strftime(time_format)
+    date_readable = time.strftime(date_format)
 
     def draw_text_centered(text, bx, by, color, size=30):
         surf = get_font(size).render(str(text), True, color)
@@ -83,27 +99,33 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
     info = pygame.display.Info()
 
     display_w, display_h = info.current_w, info.current_h
-    screen_width, screen_height = FORCED_WINDOW_SIZE
+    screen_width, screen_height = choose_window_size(display_w, display_h)
 
     #w = screen_width
     #h = screen_height
 
     print("Detected screen resolution:", display_w, display_h)
     print("Forcing window size:", screen_width, screen_height)
-    if display_w < screen_width or display_h < screen_height:
-        print("Warning: forced window is larger than the current display.")
+    if (screen_width, screen_height) != FORCED_WINDOW_SIZE:
+        print("Adjusted window size to fit the current display.")
 
     base_w, base_h = parse_base_resolution()
     print(f"Using base design resolution: {base_w}x{base_h}")
 
-    screen = pygame.display.set_mode((screen_width, screen_height))#, pygame.FULLSCREEN)
-    pygame.display.set_caption("Monkey Butler")
-
     mob_angle = 0
 
-    crt = GpuCRT(window_size=(screen_width, screen_height),
-           kx=0.18, ky=0.16, curv=0.3,
-           scan=0.18, vign=0.45, gamma=2.0)
+    screen = None
+    crt = None
+    try:
+        crt = GpuCRT(window_size=(screen_width, screen_height),
+               kx=0.18, ky=0.16, curv=0.3,
+               scan=0.18, vign=0.45, gamma=2.0)
+        print("GPU CRT effect enabled.")
+    except Exception as exc:
+        print(f"GPU CRT unavailable, falling back to standard Pygame rendering: {exc}")
+        screen = pygame.display.set_mode((screen_width, screen_height))
+
+    pygame.display.set_caption("Monkey Butler")
 
     scale_x = screen_width / base_w
     scale_y = screen_height / base_h
@@ -340,9 +362,12 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
         #post = fx.apply_persistence(last_frame, post, alpha=80)
         post.blit(grille_surf,   (0, 0))
         post.blit(vignette_surf, (0, 0))
-        screen.blit(post, (0, fx.random_vertical_jitter_y(100)))
         post.blit(scanlines_surf,(0, 0))
-        crt.draw_surface(post)
+        if crt is not None:
+            crt.draw_surface(post)
+        else:
+            screen.blit(post, (0, fx.random_vertical_jitter_y(100)))
+            pygame.display.flip()
         #last_frame = post
 
         clock.tick(60)

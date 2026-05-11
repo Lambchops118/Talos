@@ -10,6 +10,7 @@ import whisper
 import pyaudio
 import threading
 import contextlib
+from pathlib import Path
 from dotenv import load_dotenv
 import speech_recognition as sr
 from   concurrent.futures import ThreadPoolExecutor
@@ -18,7 +19,8 @@ import numpy as np
 import tasks
 from messages import Message, VoicePayload
 
-load_dotenv()
+ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(dotenv_path=ENV_PATH)
 
 # =============== VOICE AGENT SETUP ===============
 r               = sr.Recognizer()
@@ -32,6 +34,18 @@ openai.api_key       = os.getenv("OPENAI_API_KEY")
 aws_access_key       = os.getenv("AWS_ACCESS_KEY")
 aws_secret_key       = os.getenv("AWS_SECRET_KEY")
 open_weather_api_key = os.getenv("OPEN_WEATHER_API_KEY")
+
+if not ENV_PATH.exists():
+    raise RuntimeError(
+        f"Missing environment file: {ENV_PATH}. "
+        "Create it from .env.example and add OPENAI_API_KEY."
+    )
+
+if not openai.api_key:
+    raise RuntimeError(
+        f"OPENAI_API_KEY is not set in {ENV_PATH}. "
+        "Add your key to that file and restart the app."
+    )
 
 client       = openai.OpenAI(api_key=openai.api_key)
 polly_client = boto3.client(
