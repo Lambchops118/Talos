@@ -1,0 +1,332 @@
+import csv
+import json
+import threading
+import time
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Optional
+
+
+LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
+RUN_STARTED_AT = datetime.now().astimezone()
+CSV_LOG_PATH = LOG_DIR / f"voice_benchmarks_{RUN_STARTED_AT.strftime('%Y%m%d_%H%M%S_%f')}.csv"
+
+_LOG_LOCK = threading.Lock()
+
+TIMESTAMP_COLUMNS = [
+    "callback_started",
+    "recording_started_est",
+    "recording_ended_est",
+    "local_wake_send",
+    "local_wake_done",
+    "stt_send",
+    "stt_done",
+    "llm_send",
+    "llm_first_done",
+    "llm_followup_send",
+    "llm_done",
+    "polly_send",
+    "polly_done",
+    "audio_open_start",
+    "audio_stream_ready",
+    "first_audio",
+]
+
+METRIC_COLUMNS = [
+    "input_rms",
+    "recording_duration_ms",
+    "recording_start_to_wake_word_ms",
+    "recording_start_to_wake_word_end_ms",
+    "wake_word_to_recording_start_ms",
+    "local_wake_latency_ms",
+    "speech_to_text_latency_ms",
+    "llm_ttft_ms",
+    "llm_initial_latency_ms",
+    "llm_followup_latency_ms",
+    "llm_total_latency_ms",
+    "llm_request_count",
+    "aws_polly_latency_ms",
+    "audio_file_open_latency_ms",
+    "mp3_open_latency_ms",
+    "total_end_of_speech_to_first_audio_ms",
+]
+
+CSV_COLUMNS = [
+    "run_started_at",
+    "csv_file",
+    "reason",
+    "session_id",
+    "wake_word",
+    "wake_word_mode",
+    "command",
+    "transcript",
+    "response_preview",
+    *[f"ts_{name}" for name in TIMESTAMP_COLUMNS],
+    *METRIC_COLUMNS,
+    "llm_ttft_note",
+    "mp3_open_note",
+    "notes",
+    "errors",
+]
+
+
+def _wall_iso(ts: Optional[float]) -> Optional[str]:
+    if ts is None:
+        return None
+    return datetime.fromtimestamp(ts).astimezone().isoformat(timespec="milliseconds")
+
+
+def _ms(delta_seconds: Optional[float]) -> Optional[float]:
+    if delta_seconds is None:
+        return None
+    return round(delta_seconds * 1000.0, 1)
+
+
+def _preview(text: Optional[str], limit: int = 160) -> Optional[str]:
+    if not text:
+        return text
+    collapsed = " ".join(str(text).split())
+    if len(collapsed) <= limit:
+        return collapsed
+    return collapsed[: limit - 3] + "..."
+
+
+def _norm_token(text: Optional[str]) -> str:
+    if not text:
+        return ""
+    return "".join(ch for ch in text.lower() if ch.isalnum())
+
+
+@dataclass
+class VoiceBenchmarkSession:
+    wake_word: str
+    wake_word_mode: str
+    session_id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
+    stages_wall: dict[str, float] = field(default_factory=dict)
+    stages_mono: dict[str, float] = field(default_factory=dict)
+    metrics: dict[str, Any] = field(default_factory=dict)
+    notes: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    command: Optional[str] = None
+    transcript: Optional[str] = None
+    response_text: Optional[str] = None
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    _emitted: bool = field(default=False, repr=False)
+
+    def mark_stage(self, name: str, *, wall_ts: Optional[float] = None, mono_ts: Optional[float] = None) -> None:
+        if wall_ts is None:
+            wall_ts = time.time()
+        if mono_ts is None:
+            mono_ts = time.perf_counter()
+        with self._lock:
+            self.stages_wall[name] = wall_ts
+            self.stages_mono[name] = mono_ts
+
+    def set_metric(self, key: str, value: Any) -> None:
+        with self._lock:
+            self.metrics[key] = value
+
+    def add_note(self, note: str) -> None:
+        if not note:
+            return
+        with self._lock:
+            self.notes.append(note)
+
+    def add_error(self, error: str) -> None:
+        if not error:
+            return
+        with self._lock:
+            self.errors.append(error)
+
+    def set_command(self, command: str) -> None:
+        with self._lock:
+            self.command = command
+
+    def set_transcript(self, transcript: str) -> None:
+        with self._lock:
+            self.transcript = transcript
+
+    def set_response_text(self, response_text: str) -> None:
+        with self._lock:
+            self.response_text = response_text
+
+    def note_recording_ready(self, duration_seconds: float) -> None:
+        callback_wall = time.time()
+        callback_mono = time.perf_counter()
+        recording_end_wall = callback_wall
+        recording_start_wall = callback_wall - duration_seconds
+        recording_end_mono = callback_mono
+        recording_start_mono = callback_mono - duration_seconds
+
+        with self._lock:
+            self.stages_wall["callback_started"] = callback_wall
+            self.stages_mono["callback_started"] = callback_mono
+            self.stages_wall["recording_started_est"] = recording_start_wall
+            self.stages_mono["recording_started_est"] = recording_start_mono
+            self.stages_wall["recording_ended_est"] = recording_end_wall
+            self.stages_mono["recording_ended_est"] = recording_end_mono
+            self.metrics["recording_duration_ms"] = _ms(duration_seconds)
+
+    def note_wake_word_offsets(self, transcript_words: Optional[list[Any]]) -> None:
+        if not transcript_words:
+            self.add_note("Wake-word word timing unavailable from transcription response.")
+            return
+
+        wake_token = _norm_token(self.wake_word)
+        for item in transcript_words:
+            word = getattr(item, "word", None)
+            start = getattr(item, "start", None)
+            end = getattr(item, "end", None)
+            if isinstance(item, dict):
+                word = item.get("word", word)
+                start = item.get("start", start)
+                end = item.get("end", end)
+
+            if _norm_token(word) != wake_token:
+                continue
+
+            if start is not None:
+                self.set_metric("recording_start_to_wake_word_ms", _ms(float(start)))
+            if end is not None:
+                self.set_metric("recording_start_to_wake_word_end_ms", _ms(float(end)))
+            self.add_note(
+                "Wake-word-to-recording-start is not a separate latency in the current single-utterance capture flow."
+            )
+            return
+
+        self.add_note("Wake word not located in word-level transcription timings.")
+
+    def _snapshot(self) -> dict[str, Any]:
+        with self._lock:
+            stages_wall = dict(self.stages_wall)
+            stages_mono = dict(self.stages_mono)
+            metrics = dict(self.metrics)
+            notes = list(self.notes)
+            errors = list(self.errors)
+            command = self.command
+            transcript = self.transcript
+            response_text = self.response_text
+
+        def delta_ms(start: str, end: str) -> Optional[float]:
+            if start not in stages_mono or end not in stages_mono:
+                return None
+            return _ms(stages_mono[end] - stages_mono[start])
+
+        metrics.setdefault("speech_to_text_latency_ms", delta_ms("stt_send", "stt_done"))
+        metrics.setdefault("local_wake_latency_ms", delta_ms("local_wake_send", "local_wake_done"))
+        metrics.setdefault("llm_initial_latency_ms", delta_ms("llm_send", "llm_first_done"))
+        metrics.setdefault("llm_followup_latency_ms", delta_ms("llm_followup_send", "llm_done"))
+        metrics.setdefault("llm_total_latency_ms", delta_ms("llm_send", "llm_done"))
+        metrics.setdefault("aws_polly_latency_ms", delta_ms("polly_send", "polly_done"))
+        metrics.setdefault("audio_file_open_latency_ms", delta_ms("audio_open_start", "audio_stream_ready"))
+        metrics.setdefault("mp3_open_latency_ms", metrics.get("audio_file_open_latency_ms"))
+        metrics.setdefault("total_end_of_speech_to_first_audio_ms", delta_ms("recording_ended_est", "first_audio"))
+        metrics.setdefault("llm_ttft_ms", None)
+        metrics.setdefault("llm_ttft_note", "Unavailable with the current non-streaming OpenAI Responses API call.")
+        metrics.setdefault("mp3_open_note", "Current playback pipeline uses a WAV/PCM file synthesized from Polly output.")
+        metrics.setdefault(
+            "wake_word_to_recording_start_ms",
+            None,
+        )
+
+        llm_request_count = 0
+        if "llm_send" in stages_mono:
+            llm_request_count += 1
+        if "llm_followup_send" in stages_mono:
+            llm_request_count += 1
+        metrics.setdefault("llm_request_count", llm_request_count)
+
+        return {
+            "session_id": self.session_id,
+            "wake_word": self.wake_word,
+            "wake_word_mode": self.wake_word_mode,
+            "command": command,
+            "transcript": transcript,
+            "response_preview": _preview(response_text),
+            "timestamps": {name: _wall_iso(ts) for name, ts in sorted(stages_wall.items())},
+            "latencies_ms": metrics,
+            "notes": notes,
+            "errors": errors,
+        }
+
+    def emit_summary_once(self, reason: str) -> dict[str, Any]:
+        already_emitted = False
+        with self._lock:
+            already_emitted = self._emitted
+            if not self._emitted:
+                self._emitted = True
+
+        if already_emitted:
+            return self._snapshot()
+
+        payload = self._snapshot()
+        payload["reason"] = reason
+
+        line = self._format_summary_line(payload)
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        with _LOG_LOCK:
+            self._append_csv_row(payload)
+
+        print(line)
+        return payload
+
+    def _append_csv_row(self, payload: dict[str, Any]) -> None:
+        lat = payload["latencies_ms"]
+        row = {
+            "run_started_at": RUN_STARTED_AT.isoformat(timespec="seconds"),
+            "csv_file": str(CSV_LOG_PATH),
+            "reason": payload.get("reason"),
+            "session_id": payload.get("session_id"),
+            "wake_word": payload.get("wake_word"),
+            "wake_word_mode": payload.get("wake_word_mode"),
+            "command": payload.get("command"),
+            "transcript": payload.get("transcript"),
+            "response_preview": payload.get("response_preview"),
+            "llm_ttft_note": lat.get("llm_ttft_note"),
+            "mp3_open_note": lat.get("mp3_open_note"),
+            "notes": " | ".join(payload.get("notes") or []),
+            "errors": " | ".join(payload.get("errors") or []),
+        }
+
+        for name in TIMESTAMP_COLUMNS:
+            row[f"ts_{name}"] = payload["timestamps"].get(name)
+
+        for name in METRIC_COLUMNS:
+            row[name] = lat.get(name)
+
+        write_header = not CSV_LOG_PATH.exists()
+        with CSV_LOG_PATH.open("a", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=CSV_COLUMNS)
+            if write_header:
+                writer.writeheader()
+            writer.writerow(row)
+
+    def _format_summary_line(self, payload: dict[str, Any]) -> str:
+        lat = payload["latencies_ms"]
+        ts = payload["timestamps"]
+        parts = [
+            f"[voice-bench {payload['session_id']}]",
+            f"command={json.dumps(payload.get('command') or '', ensure_ascii=True)}",
+            f"recording={lat.get('recording_duration_ms')}ms",
+            f"stt={lat.get('speech_to_text_latency_ms')}ms",
+            (
+                "llm="
+                f"{lat.get('llm_total_latency_ms')}ms"
+                f" (requests={lat.get('llm_request_count')}, ttft={lat.get('llm_ttft_ms')})"
+            ),
+            f"polly={lat.get('aws_polly_latency_ms')}ms",
+            f"audio_open={lat.get('audio_file_open_latency_ms')}ms",
+            f"end_of_speech_to_first_audio={lat.get('total_end_of_speech_to_first_audio_ms')}ms",
+        ]
+
+        if lat.get("recording_start_to_wake_word_ms") is not None:
+            parts.append(f"recording_to_wake={lat.get('recording_start_to_wake_word_ms')}ms")
+        if ts.get("llm_send"):
+            parts.append(f"llm_send={ts.get('llm_send')}")
+        parts.append(f"csv={CSV_LOG_PATH.name}")
+        if payload.get("errors"):
+            parts.append(f"errors={json.dumps(payload['errors'], ensure_ascii=True)}")
+
+        return " | ".join(parts)

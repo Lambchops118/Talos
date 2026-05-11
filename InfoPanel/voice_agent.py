@@ -17,6 +17,7 @@ from   concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
 import tasks
+from benchmarking import VoiceBenchmarkSession
 from messages import Message, VoicePayload
 
 ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
@@ -121,10 +122,32 @@ def _local_wake_word_detect(audio_data):
         print(f"Local wake-word detection error: {e}")
         return True  # fail open to avoid blocking commands
 
+
+def _extract_transcription_text(transcription_result):
+    if isinstance(transcription_result, str):
+        return transcription_result
+    text = getattr(transcription_result, "text", None)
+    if text is not None:
+        return text
+    if isinstance(transcription_result, dict):
+        return transcription_result.get("text", "")
+    return ""
+
+
+def _extract_transcription_words(transcription_result):
+    words = getattr(transcription_result, "words", None)
+    if words is not None:
+        return words
+    if isinstance(transcription_result, dict):
+        return transcription_result.get("words")
+    return None
+
 # =============== AUDIO PLAYBACK ===============
-def play_audio(filename): #Plays the WAV from AWS Polly then deletes the file.
+def play_audio(filename, benchmark=None): #Plays the WAV from AWS Polly then deletes the file.
     try:
-        chunk = 1024 
+        chunk = 1024
+        if benchmark:
+            benchmark.mark_stage("audio_open_start")
         with wave.open(filename, 'rb') as wf:
             stream = audio_interface.open(
                 format   = audio_interface.get_format_from_width(wf.getsampwidth()), #See if this is causing rate error
@@ -132,9 +155,16 @@ def play_audio(filename): #Plays the WAV from AWS Polly then deletes the file.
                 rate     = wf.getframerate(),
                 output   = True
             )
+            if benchmark:
+                benchmark.mark_stage("audio_stream_ready")
             data = wf.readframes(chunk)
+            first_chunk = True
             while data:
                 stream.write(data)
+                if benchmark and first_chunk:
+                    benchmark.mark_stage("first_audio")
+                    benchmark.emit_summary_once("first_audio")
+                    first_chunk = False
                 data = wf.readframes(chunk)
             stream.stop_stream()
             stream.close()
@@ -145,6 +175,9 @@ def play_audio(filename): #Plays the WAV from AWS Polly then deletes the file.
         print(f"ln 143 Removed file: {filename}")
 
     except Exception as e:
+        if benchmark:
+            benchmark.add_error(f"Audio playback error: {e}")
+            benchmark.emit_summary_once("audio_playback_error")
         print(f"Error in play_audio: {e}")
 
 
@@ -178,6 +211,7 @@ def play_audio(filename): #Plays the WAV from AWS Polly then deletes the file.
 #Experiment with whisper API
 def recognition_callback(recognizer, audio_data, central_queue):
     print("Recognition callback triggered.")
+    benchmark = VoiceBenchmarkSession(wake_word=WAKE_WORD, wake_word_mode=WAKE_WORD_MODE)
     try:
         print("Trying recognition with Whisper...")
         raw_audio = audio_data.get_raw_data()
@@ -186,43 +220,75 @@ def recognition_callback(recognizer, audio_data, central_queue):
 
         rms = audioop.rms(raw_audio, sample_width)
         duration = len(raw_audio) / float(sample_rate * sample_width) if sample_rate and sample_width else 0
+        benchmark.note_recording_ready(duration)
+        benchmark.set_metric("input_rms", rms)
         if rms < 300 or duration < 0.35:  # skip silence/very short noise
             print(f"Skipping low-energy audio (rms={rms}, dur={duration:.2f}s)")
+            benchmark.add_note("Skipped low-energy or too-short audio clip.")
+            benchmark.emit_summary_once("discarded_audio")
             return
 
-        if WAKE_WORD_MODE == "local" and not _local_wake_word_detect(audio_data):
+        if WAKE_WORD_MODE == "local":
+            benchmark.mark_stage("local_wake_send")
+            wake_detected = _local_wake_word_detect(audio_data)
+            benchmark.mark_stage("local_wake_done")
+        else:
+            wake_detected = True
+
+        if not wake_detected:
             print("Wake word not detected locally; skipping Whisper API call.")
+            benchmark.add_note("Local wake-word check rejected the clip before remote STT.")
+            benchmark.emit_summary_once("wake_word_rejected")
             return
 
         wav_bytes = audio_data.get_wav_data()
         audio_file = io.BytesIO(wav_bytes)
         audio_file.name = "speech.wav"  # needed for content-type detection
 
-        whisper_text = client.audio.transcriptions.create(
+        benchmark.mark_stage("stt_send")
+        whisper_result = client.audio.transcriptions.create(
             model="whisper-1",
             file=audio_file,
-            response_format="text",  # returns plain text
+            response_format="verbose_json",
             language="en",  # lock language to reduce hallucinations
             temperature=0,
+            timestamp_granularities=["word"],
         )
-        text_spoken = whisper_text.strip().lower()
+        benchmark.mark_stage("stt_done")
+
+        text_spoken = _extract_transcription_text(whisper_result).strip().lower()
         if not text_spoken:
             print("No transcription returned.")
+            benchmark.add_note("Remote STT returned an empty transcript.")
+            benchmark.emit_summary_once("empty_transcript")
             return
+        benchmark.set_transcript(text_spoken)
+        benchmark.note_wake_word_offsets(_extract_transcription_words(whisper_result))
         print(f"User said: {text_spoken}")
 
         if text_spoken.startswith(WAKE_WORD):
             command = text_spoken[len(WAKE_WORD):].strip()
             print(f"Command received: {command}")
             if command:
-                central_queue.put(Message(type="voice_cmd", payload=VoicePayload(command)))
+                benchmark.set_command(command)
+                central_queue.put(Message(type="voice_cmd", payload=VoicePayload(command, benchmark)))
                 print(f"Command '{command}' added to central queue.")
+                return
+
+        benchmark.add_note("Transcript did not begin with the configured wake word.")
+        benchmark.emit_summary_once("wake_word_missing_in_transcript")
     except sr.UnknownValueError:
         print("Could not understand the audio.")
+        benchmark.add_error("Speech recognition callback could not understand the audio.")
+        benchmark.emit_summary_once("speech_recognition_unknown_value")
     except sr.RequestError as e:
         print(f"Speech Recognition API error: {e}")
+        benchmark.add_error(f"Speech recognition request error: {e}")
+        benchmark.emit_summary_once("speech_recognition_request_error")
     except Exception as e:
         print(f"Unexpected Error: {e}")
+        benchmark.add_error(f"Recognition callback error: {e}")
+        benchmark.emit_summary_once("recognition_callback_error")
 
 # =============== START BACKGROUND LISTENING ===============
 def run_voice_recognition(central_queue): #Sets up background listening in a new thread. central_queue is passed in.
@@ -244,10 +310,12 @@ def run_voice_recognition(central_queue): #Sets up background listening in a new
     return stop_listening
 
 
-def handle_command(command, gui_queue, state_snapshot="no recent status"): # Worker thread that processes commands recognized by the speech callback. Does Gpt interaction, function exec, TTS synthesis, and playback.
+def handle_command(command, gui_queue, state_snapshot="no recent status", benchmark=None): # Worker thread that processes commands recognized by the speech callback. Does Gpt interaction, function exec, TTS synthesis, and playback.
     print(f"Handling command: {command}") # Log the command being handled
     global last_response_id
     try:
+        if benchmark:
+            benchmark.set_command(command)
         print("Creating OpenAI response...")
 
         tool_defs = []
@@ -289,7 +357,11 @@ def handle_command(command, gui_queue, state_snapshot="no recent status"): # Wor
             if last_response_id:
                 request_kwargs["previous_response_id"] = last_response_id
 
+            if benchmark:
+                benchmark.mark_stage("llm_send")
             response = client.responses.create(**request_kwargs)
+            if benchmark:
+                benchmark.mark_stage("llm_first_done")
             tool_outputs = []
 
 
@@ -322,6 +394,8 @@ def handle_command(command, gui_queue, state_snapshot="no recent status"): # Wor
                 print(f"Function '{item.name}' executed with result: {result}")
 
             if tool_outputs:
+                if benchmark:
+                    benchmark.mark_stage("llm_followup_send")
                 followup = client.responses.create(
                     model=ai_model,
                     instructions=indoctrination,
@@ -331,17 +405,25 @@ def handle_command(command, gui_queue, state_snapshot="no recent status"): # Wor
                     temperature=0.5,
                     max_output_tokens=150,
                 )
+                if benchmark:
+                    benchmark.mark_stage("llm_done")
                 response_text = (followup.output_text or "").strip()
                 last_response_id = followup.id
             else:
+                if benchmark:
+                    benchmark.mark_stage("llm_done")
                 response_text = (response.output_text or "").strip()
                 last_response_id = response.id
 
         response_text = response_text.replace("Monkey Butler:", "").strip() # There is probably a much better way to do this.
+        if benchmark:
+            benchmark.set_response_text(response_text)
         print(f"Bot response: {response_text}")
 
         gui_queue.put(("VOICE_CMD", command, response_text)) # Send to GUI queue
 
+        if benchmark:
+            benchmark.mark_stage("polly_send")
         with contextlib.closing( #Synthesize speech with AWS Polly
             polly_client.synthesize_speech(
                 VoiceId      = 'Brian',
@@ -352,6 +434,8 @@ def handle_command(command, gui_queue, state_snapshot="no recent status"): # Wor
             ).get('AudioStream')
         ) as stream:
             pcm_data = stream.read()
+            if benchmark:
+                benchmark.mark_stage("polly_done")
             print("Speech synthesized successfully.")
 
         filename = "speech_output.wav"
@@ -363,15 +447,24 @@ def handle_command(command, gui_queue, state_snapshot="no recent status"): # Wor
             wf.writeframesraw(pcm_data)
             print(f"WAV file '{filename}' created successfully.")
 
-        audio_thread = threading.Thread(target=play_audio, args=(filename,))
+        audio_thread = threading.Thread(target=play_audio, args=(filename, benchmark))
         print("Starting audio playback thread...")
         audio_thread.start()
         print("Audio playback thread started.")
     except openai.OpenAIError as e:
+        if benchmark:
+            benchmark.add_error(f"OpenAI API error: {e}")
+            benchmark.emit_summary_once("openai_error")
         print(f"OpenAI API Error: {e}")
     except boto3.exceptions.Boto3Error as e:
+        if benchmark:
+            benchmark.add_error(f"AWS Polly error: {e}")
+            benchmark.emit_summary_once("polly_error")
         print(f"AWS Polly Error: {e}")
     except Exception as e:
+        if benchmark:
+            benchmark.add_error(f"Command handling error: {e}")
+            benchmark.emit_summary_once("handle_command_error")
         print(f"Unexpected Error: {e}")
 
 
@@ -384,6 +477,6 @@ def process_commands(processing_queue, gui_queue): #Continuously read commands f
             executor.submit(handle_command, command, gui_queue) # Submit command to thread pool
 
 
-def handle_command_with_context(command, gui_queue, state_snapshot):
+def handle_command_with_context(command, gui_queue, state_snapshot, benchmark=None):
     """Wrapper so router can pass in a context snapshot."""
-    handle_command(command, gui_queue, state_snapshot)
+    handle_command(command, gui_queue, state_snapshot, benchmark)

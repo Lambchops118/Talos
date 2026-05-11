@@ -24,7 +24,7 @@ def router_loop(central_queue: queue.Queue, gui_queue: queue.Queue, stop_signal:
         elif msg.type == "voice_cmd":
             vp: VoicePayload = msg.payload
             snapshot = state.snapshot()
-            voice_agent.handle_command_with_context(vp.command, gui_queue, snapshot)
+            voice_agent.handle_command_with_context(vp.command, gui_queue, snapshot, vp.benchmark)
 
         elif msg.type == "event":
             if msg.needs_llm:

@@ -1,6 +1,6 @@
 import time
-from   typing import Any, Literal
-from   dataclasses import dataclass, field
+from dataclasses import dataclass, field
+from typing import Any, Literal, Optional
 
 
 MessageType = Literal["voice_cmd", "status", "event", "ui"]
@@ -21,6 +21,7 @@ class StatusPayload:
 @dataclass
 class VoicePayload:
     command: str
+    benchmark: Optional[Any] = None
 
 @dataclass
 class EventPayload:

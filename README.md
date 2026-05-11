@@ -63,6 +63,8 @@ Run the host app:
 python InfoPanel/main.py
 ```
 
+Voice benchmark summaries print directly to the main app terminal. Each app run also creates a new timestamped CSV in `logs/`, for example `voice_benchmarks_20260511_124500_123456.csv`.
+
 ### Peripheral Deployment
 
 The peripheral code is written for MicroPython on Raspberry Pi Pico W boards and is deployed manually.
