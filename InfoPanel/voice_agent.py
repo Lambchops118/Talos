@@ -2,7 +2,6 @@ import io
 import os
 import time
 import wave
-import json
 import audioop
 import boto3
 import openai
@@ -16,7 +15,7 @@ import speech_recognition as sr
 from   concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
-import tasks
+from agent_tools import discover_tools, registry as tool_registry
 from benchmarking import VoiceBenchmarkSession
 from messages import Message, VoicePayload
 
@@ -73,6 +72,8 @@ Always respond as if you are a hyper-competent digital butler/engineer assisting
 conversation_lock = threading.Lock()
 last_response_id  = None
 ai_model          = os.getenv("OPENAI_VOICE_MODEL", "gpt-4o-mini")
+
+discover_tools()
 
 # =============== WAKE WORD DETECTION (LOCAL) ===============
 _wake_model = None
@@ -318,18 +319,7 @@ def handle_command(command, gui_queue, state_snapshot="no recent status", benchm
             benchmark.set_command(command)
         print("Creating OpenAI response...")
 
-        tool_defs = []
-        for tool_def in tasks.functions:
-            if tool_def.get("type") == "function":
-                tool_defs.append(tool_def)
-            else:
-                tool_defs.append({"type": "function", **tool_def})
-
-        function_map = {
-            "water_plants": tasks.water_plants,
-            "turn_on_lights": tasks.turn_on_lights,
-            "toggle_fan": tasks.toggle_fan,
-        }
+        tool_defs = tool_registry.list_definitions()
 
         def format_context(snapshot):
             if not snapshot or snapshot == "no recent status":
@@ -370,21 +360,11 @@ def handle_command(command, gui_queue, state_snapshot="no recent status", benchm
                     continue
                 print(f"FUNCTION CALL DETECTED: {item.name} with args {item.arguments}")
                 try:
-                    parsed_args = json.loads(item.arguments) if item.arguments else {}
-                except json.JSONDecodeError:
-                    parsed_args = {}
-
-                func = function_map.get(item.name)
-                if not func:
+                    result = tool_registry.call(item.name, item.arguments)
+                except KeyError:
                     result = f"Unknown function: {item.name}"
-                else:
-                    try:
-                        if isinstance(parsed_args, dict):
-                            result = func(**parsed_args)
-                        else:
-                            result = func(parsed_args)
-                    except Exception as e:
-                        result = f"Error calling {item.name}: {e}"
+                except Exception as e:
+                    result = f"Error calling {item.name}: {e}"
 
                 tool_outputs.append({
                     "type": "function_call_output",

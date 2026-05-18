@@ -7,7 +7,6 @@ import platform
 from pathlib import Path
 from   dotenv import load_dotenv; load_dotenv()
 
-import tasks
 #import gears2 as gears
 import screen_effects as fx
 import butler_vector_art as MBVectorArt
