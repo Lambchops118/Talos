@@ -5,7 +5,7 @@ import pygame
 from pathlib import Path
 from   dataclasses import dataclass
 
-FONT_PATH = str(Path(__file__).resolve().parent / "VT323-Regular.ttf")
+FONT_PATH = str(Path(__file__).resolve().parent / "assets" / "VT323-Regular.ttf")
 
 @dataclass
 class WidgetConfig:

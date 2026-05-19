@@ -8,9 +8,9 @@ from dotenv import load_dotenv
 # --- CUSTOM MODULES ---
 # Assuming these exist in your project folder
 import gears2 as gears
-import screen_effects as fx
+from talos.apps.infopanel import screen_effects as fx
 import MBVectorArt2 as MBVectorArt
-from screen_effects import GpuCRT
+from talos.apps.infopanel.screen_effects import GpuCRT
 
 # Load environment variables
 load_dotenv()

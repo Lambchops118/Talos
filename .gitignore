@@ -20,5 +20,4 @@ tv_control.cpython-39.pyc
 logs/
 
 # Project-specific ignores
-InfoPanel/tasks.py
 tests/persistent_convo.py

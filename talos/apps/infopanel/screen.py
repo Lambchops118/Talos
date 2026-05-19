@@ -7,16 +7,14 @@ import platform
 from pathlib import Path
 from   dotenv import load_dotenv; load_dotenv()
 
-#import gears2 as gears
-import screen_effects as fx
-import butler_vector_art as MBVectorArt
-from   screen_effects import GpuCRT
-import obj_wireframe_loader as objl
-import moving_vector_portrait as vec3d
+from talos.ui import widgets as ui_widgets
+from . import butler_vector_art as MBVectorArt
+from . import moving_vector_portrait as vec3d
+from . import obj_wireframe_loader as objl
+from . import screen_effects as fx
+from .screen_effects import GpuCRT
 
-import windows
-
-font_path = str(Path(__file__).resolve().parent / "VT323-Regular.ttf")
+font_path = str(Path(__file__).resolve().parents[2] / "ui" / "assets" / "VT323-Regular.ttf")
 
 # =============== PYGAME INFO PANEL ===============
 color         = (0, 255, 100)
@@ -180,8 +178,8 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
     
     # This takes the dynamo configs and creates the actual Dynamo objects.
     dynamos = [
-        windows.Dynamo(
-            windows.WidgetConfig(
+        ui_widgets.Dynamo(
+            ui_widgets.WidgetConfig(
                 surface=framebuffer,
                 x=cfg["x"],
                 y=cfg["y"],
@@ -246,8 +244,8 @@ def run_info_panel_gui(cmd_queue, scale): #The main Pygame loop. Polls 'cmd_queu
 
     # This takes the widget configs and creates the actual Widget objects.
     widgets = [
-        windows.Widget(
-            windows.WidgetConfig(
+        ui_widgets.Widget(
+            ui_widgets.WidgetConfig(
                 surface=framebuffer,
                 x=cfg["x"],
                 y=cfg["y"],

@@ -9,17 +9,16 @@ import whisper
 import pyaudio
 import threading
 import contextlib
-from pathlib import Path
 from dotenv import load_dotenv
 import speech_recognition as sr
 from   concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
-from benchmarking import VoiceBenchmarkSession
-from local_mcp_client import get_local_mcp_client, shutdown_local_mcp_client
-from messages import Message, VoicePayload
+from talos.core.benchmarking import VoiceBenchmarkSession
+from talos.core.messages import Message, VoicePayload
+from talos.paths import ENV_PATH
+from .local_mcp_client import get_local_mcp_client, shutdown_local_mcp_client
 
-ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(dotenv_path=ENV_PATH)
 
 # =============== VOICE AGENT SETUP ===============
@@ -309,7 +308,7 @@ def run_voice_recognition(central_queue): #Sets up background listening in a new
     return stop_listening
 
 
-def handle_command(command, gui_queue, state_snapshot="no recent status", benchmark=None): # Worker thread that processes commands recognized by the speech callback. Does Gpt interaction, function exec, TTS synthesis, and playback.
+def handle_command(command, ui_queue, state_snapshot="no recent status", benchmark=None): # Worker thread that processes commands recognized by the speech callback. Does Gpt interaction, function exec, TTS synthesis, and playback.
     print(f"Handling command: {command}") # Log the command being handled
     global last_response_id
     try:
@@ -399,7 +398,8 @@ def handle_command(command, gui_queue, state_snapshot="no recent status", benchm
             benchmark.set_response_text(response_text)
         print(f"Bot response: {response_text}")
 
-        gui_queue.put(("VOICE_CMD", command, response_text)) # Send to GUI queue
+        if ui_queue is not None:
+            ui_queue.put(("VOICE_CMD", command, response_text)) # Send to UI queue
 
         if benchmark:
             benchmark.mark_stage("polly_send")
@@ -451,15 +451,15 @@ def shutdown() -> None:
     shutdown_local_mcp_client()
 
 
-def process_commands(processing_queue, gui_queue): #Continuously read commands from 'processing_queue' and submit them to a thread pool so multiple commands can be handled concurrently.
+def process_commands(processing_queue, ui_queue): #Continuously read commands from 'processing_queue' and submit them to a thread pool so multiple commands can be handled concurrently.
     with ThreadPoolExecutor() as executor: # Thread pool for handling commands
         while True:
             command = processing_queue.get() # Try to get a command from the queue
             if command is None:
                 break # Exit signal
-            executor.submit(handle_command, command, gui_queue) # Submit command to thread pool
+            executor.submit(handle_command, command, ui_queue) # Submit command to thread pool
 
 
-def handle_command_with_context(command, gui_queue, state_snapshot, benchmark=None):
+def handle_command_with_context(command, ui_queue, state_snapshot, benchmark=None):
     """Wrapper so router can pass in a context snapshot."""
-    handle_command(command, gui_queue, state_snapshot, benchmark)
+    handle_command(command, ui_queue, state_snapshot, benchmark)

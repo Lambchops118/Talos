@@ -1,17 +1,19 @@
 import os
-import tv_control
-from   pyowm import OWM
-from   datetime import datetime
-from   zoneinfo import ZoneInfo
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 import paho.mqtt.client as mqtt
+from   pyowm import OWM
 from   pycoingecko import CoinGeckoAPI
-from   messages import Message, VoicePayload
 from   apscheduler.triggers.cron import CronTrigger
 from   apscheduler.schedulers.background import BackgroundScheduler
 
+from talos.core.messages import Message, VoicePayload
+from . import tv_control
+
 TZ       = ZoneInfo("America/New_York")  # pick your local tz
-BROKER   = "192.168.1.160"
-PORT     = 1883
+BROKER   = os.getenv("MQTT_BROKER", "192.168.1.160")
+PORT     = int(os.getenv("MQTT_PORT", "1883"))
 cg       = CoinGeckoAPI()
 coins    = ["bitcoin", "ethereum", "solana"]
 currency = "usd"
@@ -131,7 +133,7 @@ def push_status(central_queue, **values):
     central_queue.put(Message(type="ui", payload=("STATUS", values)))
 
 
-def start_scheduler(gui_queue, central_queue=None):
+def start_scheduler(ui_queue, central_queue=None):
     scheduler = BackgroundScheduler(
         timezone     = TZ,
         job_defaults = {
@@ -169,7 +171,7 @@ def start_scheduler(gui_queue, central_queue=None):
     scheduler.add_job(
         update_infopanel_information,
         trigger  = CronTrigger(minute="*/1"), # Every 1 Minute
-        args     = [gui_queue, central_queue],
+        args     = [ui_queue, central_queue],
         id       = "update_infopane_information",
         replace_existing = True,
     )
@@ -177,7 +179,7 @@ def start_scheduler(gui_queue, central_queue=None):
     scheduler.add_job(
         morning_report_job,
         trigger  = CronTrigger(hour=7, minute=30), 
-        args     = [gui_queue, central_queue],
+        args     = [ui_queue, central_queue],
         id       = "morning_report_job",
         replace_existing = True,
     )

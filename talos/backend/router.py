@@ -1,10 +1,16 @@
 import queue
-import voice_agent
 from   typing import Optional
-from state_store import StateStore
-from messages import Message, StatusPayload, VoicePayload
 
-def router_loop(central_queue: queue.Queue, gui_queue: queue.Queue, stop_signal: Optional[object] = None):
+from talos.core.messages import Message, StatusPayload, VoicePayload
+from talos.core.state_store import StateStore
+from . import voice_agent
+
+
+def router_loop(
+    central_queue: queue.Queue,
+    ui_queue: queue.Queue | None,
+    stop_signal: Optional[object] = None,
+):
     """
     Central dispatcher:
     - status/event updates refresh StateStore (no API calls)
@@ -24,14 +30,17 @@ def router_loop(central_queue: queue.Queue, gui_queue: queue.Queue, stop_signal:
         elif msg.type == "voice_cmd":
             vp: VoicePayload = msg.payload
             snapshot = state.snapshot()
-            voice_agent.handle_command_with_context(vp.command, gui_queue, snapshot, vp.benchmark)
+            voice_agent.handle_command_with_context(vp.command, ui_queue, snapshot, vp.benchmark)
 
         elif msg.type == "event":
             if msg.needs_llm:
                 snapshot = state.snapshot()
                 voice_agent.handle_command_with_context(
-                    f"Event {msg.payload.name}: {msg.payload.data}", gui_queue, snapshot
+                    f"Event {msg.payload.name}: {msg.payload.data}",
+                    ui_queue,
+                    snapshot,
                 )
 
         elif msg.type == "ui":
-            gui_queue.put(msg.payload)
+            if ui_queue is not None:
+                ui_queue.put(msg.payload)

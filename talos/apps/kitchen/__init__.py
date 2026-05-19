@@ -1,0 +1,2 @@
+"""Kitchen display application."""
+

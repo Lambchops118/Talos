@@ -6,7 +6,7 @@ import traceback
 from dataclasses import dataclass
 from typing import Any, Callable
 
-import home_automation_actions as actions
+from . import home_automation_actions as actions
 
 
 @dataclass(frozen=True)

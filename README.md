@@ -8,7 +8,11 @@ TALOS is a home automation and voice-assistant project built around a Python hos
 
 ## Project Layout
 
-- `InfoPanel/`: desktop application, voice pipeline, scheduler, and on-screen status UI
+- `talos/backend/`: voice pipeline, scheduler, local tool server, automation integrations
+- `talos/core/`: shared messages, state, and benchmark logging
+- `talos/apps/infopanel/`: the main desktop display client
+- `talos/apps/kitchen/`: secondary kitchen display client
+- `talos/ui/`: shared Pygame widgets and UI assets
 - `Peripherals/fan/`: Raspberry Pi Pico W script for MQTT-controlled fan switching
 - `Peripherals/quad_pump/`: Raspberry Pi Pico W script for MQTT-controlled plant watering
 - `Peripherals/mqtt_server/control_display.py`: MQTT listener that sends TV power/input commands
@@ -16,7 +20,7 @@ TALOS is a home automation and voice-assistant project built around a Python hos
 
 ## Build
 
-This repository does not currently produce packaged installers or binary artifacts. The main build target is the Python host application in `InfoPanel/`, with peripheral scripts deployed manually to MicroPython devices.
+This repository does not currently produce packaged installers or binary artifacts. The main build targets are the TALOS backend service and the InfoPanel desktop app, with peripheral scripts deployed manually to MicroPython devices.
 
 ### Host Application
 
@@ -57,13 +61,21 @@ Optional voice settings:
 - `WAKE_WORD_MODEL`
 - `OPENAI_VOICE_MODEL`
 
-Run the host app:
+Run the combined desktop app:
 
 ```bash
-python InfoPanel/main.py
+python -m talos.apps.infopanel.main
 ```
 
-Voice benchmark summaries print directly to the main app terminal. Each app run also creates a new timestamped CSV in `logs/`, for example `voice_benchmarks_20260511_124500_123456.csv`.
+Run the backend by itself:
+
+```bash
+python -m talos.backend.main
+```
+
+Legacy entrypoints such as `python InfoPanel/main.py` still forward to the new package layout.
+
+Voice benchmark summaries print directly to the active terminal. Each app run also creates a new timestamped CSV in `logs/`, for example `voice_benchmarks_20260511_124500_123456.csv`.
 
 ### Peripheral Deployment
 

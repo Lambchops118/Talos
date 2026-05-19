@@ -5,11 +5,10 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Optional
 
+from talos.paths import LOG_DIR
 
-LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
 RUN_STARTED_AT = datetime.now().astimezone()
 CSV_LOG_PATH = LOG_DIR / f"voice_benchmarks_{RUN_STARTED_AT.strftime('%Y%m%d_%H%M%S_%f')}.csv"
 

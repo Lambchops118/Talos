@@ -1,0 +1,2 @@
+"""InfoPanel frontend application."""
+

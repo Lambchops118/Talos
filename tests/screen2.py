@@ -5,11 +5,11 @@ import pygame
 from dotenv import load_dotenv; load_dotenv()
 
 import gears2 as gears
-import screen_effects as fx
+from talos.apps.infopanel import screen_effects as fx
 import MBVectorArt2 as MBVectorArt
-from screen_effects import GpuCRT
-import obj_wireframe_loader as objl
-import moving_vector_portrait as vec3d
+from talos.apps.infopanel.screen_effects import GpuCRT
+from talos.apps.infopanel import moving_vector_portrait as vec3d
+from talos.apps.infopanel import obj_wireframe_loader as objl
 
 # ================== CONFIG & CONSTANTS ==================
 
