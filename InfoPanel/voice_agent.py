@@ -15,8 +15,8 @@ import speech_recognition as sr
 from   concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
-from agent_tools import discover_tools, registry as tool_registry
 from benchmarking import VoiceBenchmarkSession
+from local_mcp_client import get_local_mcp_client, shutdown_local_mcp_client
 from messages import Message, VoicePayload
 
 ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
@@ -72,8 +72,6 @@ Always respond as if you are a hyper-competent digital butler/engineer assisting
 conversation_lock = threading.Lock()
 last_response_id  = None
 ai_model          = os.getenv("OPENAI_VOICE_MODEL", "gpt-4o-mini")
-
-discover_tools()
 
 # =============== WAKE WORD DETECTION (LOCAL) ===============
 _wake_model = None
@@ -319,7 +317,8 @@ def handle_command(command, gui_queue, state_snapshot="no recent status", benchm
             benchmark.set_command(command)
         print("Creating OpenAI response...")
 
-        tool_defs = tool_registry.list_definitions()
+        mcp_client = get_local_mcp_client()
+        tool_defs = mcp_client.openai_tool_definitions()
 
         def format_context(snapshot):
             if not snapshot or snapshot == "no recent status":
@@ -360,7 +359,7 @@ def handle_command(command, gui_queue, state_snapshot="no recent status", benchm
                     continue
                 print(f"FUNCTION CALL DETECTED: {item.name} with args {item.arguments}")
                 try:
-                    result = tool_registry.call(item.name, item.arguments)
+                    result = mcp_client.call_tool(item.name, item.arguments)
                 except KeyError:
                     result = f"Unknown function: {item.name}"
                 except Exception as e:
@@ -446,6 +445,10 @@ def handle_command(command, gui_queue, state_snapshot="no recent status", benchm
             benchmark.add_error(f"Command handling error: {e}")
             benchmark.emit_summary_once("handle_command_error")
         print(f"Unexpected Error: {e}")
+
+
+def shutdown() -> None:
+    shutdown_local_mcp_client()
 
 
 def process_commands(processing_queue, gui_queue): #Continuously read commands from 'processing_queue' and submit them to a thread pool so multiple commands can be handled concurrently.

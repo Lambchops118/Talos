@@ -44,5 +44,6 @@ if __name__ == "__main__":
         except Exception:
             pass
 
+        voice_agent.shutdown()
         voice_agent.audio_interface.terminate()
         print("Exiting cleanly.")
