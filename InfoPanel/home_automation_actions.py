@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -75,7 +76,7 @@ def get_current_datetime() -> str:
 
 
 def get_current_weather(location: str = "") -> str:
-    requested_location = location.strip() or WEATHER_LOCATION
+    requested_location = _normalize_location_query(location) or _normalize_location_query(WEATHER_LOCATION)
     if not requested_location:
         raise ValueError("No weather location configured. Set TALOS_WEATHER_LOCATION or pass a location.")
     if not OPEN_WEATHER_API_KEY:
@@ -181,6 +182,12 @@ def _geocode_location(location: str) -> tuple[float, float, str]:
     match = matches[0]
     resolved_location = _format_location(match)
     return float(match["lat"]), float(match["lon"]), resolved_location
+
+
+def _normalize_location_query(location: str) -> str:
+    normalized = " ".join(str(location).split())
+    normalized = re.sub(r"\s*,\s*", ", ", normalized)
+    return normalized.strip(" ,")
 
 
 def _fetch_weather(latitude: float, longitude: float) -> dict:
