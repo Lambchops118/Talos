@@ -1,0 +1,427 @@
+from __future__ import annotations
+
+import ipaddress
+import json
+import os
+import queue
+import threading
+from dataclasses import dataclass
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any
+
+import agent_runtime
+from messages import Message, TextPayload
+
+
+DEFAULT_ALLOWED_NETWORKS = [
+    "127.0.0.1/32",
+    "::1/128",
+    "100.64.0.0/10",
+    "fd7a:115c:a1e0::/48",
+]
+
+
+@dataclass(frozen=True)
+class TextServerConfig:
+    enabled: bool
+    host: str
+    port: int
+    api_token: str
+    request_timeout: float
+    allowed_networks: tuple[Any, ...]
+
+    @classmethod
+    def from_env(cls) -> "TextServerConfig":
+        enabled = os.getenv("TEXT_AGENT_ENABLED", "1").strip().lower() not in {"0", "false", "no", "off"}
+        host = os.getenv("TEXT_AGENT_HOST", "0.0.0.0").strip() or "0.0.0.0"
+        port = int(os.getenv("TEXT_AGENT_PORT", "8420"))
+        api_token = os.getenv("TEXT_AGENT_API_TOKEN", "").strip()
+        request_timeout = float(os.getenv("TEXT_AGENT_TIMEOUT", "90"))
+        raw_networks = os.getenv(
+            "TEXT_AGENT_ALLOWED_NETWORKS",
+            ",".join(DEFAULT_ALLOWED_NETWORKS),
+        )
+        allowed_networks = tuple(
+            ipaddress.ip_network(entry.strip(), strict=False)
+            for entry in raw_networks.split(",")
+            if entry.strip()
+        )
+        return cls(
+            enabled=enabled,
+            host=host,
+            port=port,
+            api_token=api_token,
+            request_timeout=request_timeout,
+            allowed_networks=allowed_networks,
+        )
+
+
+class TextAgentHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def __init__(
+        self,
+        server_address: tuple[str, int],
+        central_queue: queue.Queue,
+        config: TextServerConfig,
+    ) -> None:
+        super().__init__(server_address, TextAgentRequestHandler)
+        self.central_queue = central_queue
+        self.config = config
+
+
+class TextAgentRequestHandler(BaseHTTPRequestHandler):
+    server: TextAgentHTTPServer
+    server_version = "TalosTextAgent/0.1"
+
+    def do_GET(self) -> None:
+        if not self._authorize_request(require_token=False):
+            return
+
+        if self.path == "/" or self.path.startswith("/?"):
+            self._write_html(HTTPStatus.OK, self._chat_page())
+            return
+        if self.path == "/health":
+            self._write_json(HTTPStatus.OK, {"ok": True, "status": "healthy"})
+            return
+        self._write_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "Not found"})
+
+    def do_POST(self) -> None:
+        if not self._authorize_request(require_token=True):
+            return
+
+        if self.path == "/chat":
+            self._handle_chat()
+            return
+        if self.path == "/sessions/reset":
+            self._handle_reset_session()
+            return
+        self._write_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "Not found"})
+
+    def log_message(self, fmt: str, *args: Any) -> None:
+        print(f"[text-agent] {self.address_string()} - {fmt % args}")
+
+    def _authorize_request(self, *, require_token: bool) -> bool:
+        if not self._client_is_allowed():
+            self._write_json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "Client is not on an allowed network."})
+            return False
+
+        api_token = self.server.config.api_token
+        if not require_token or not api_token:
+            return True
+
+        auth_header = self.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            provided = auth_header[7:].strip()
+        else:
+            provided = self.headers.get("X-API-Key", "").strip()
+
+        if provided != api_token:
+            self.send_response(HTTPStatus.UNAUTHORIZED)
+            self.send_header("WWW-Authenticate", "Bearer")
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps({"ok": False, "error": "Unauthorized"}).encode("utf-8")
+            )
+            return False
+
+        return True
+
+    def _client_is_allowed(self) -> bool:
+        try:
+            client_ip = ipaddress.ip_address(self.client_address[0])
+        except ValueError:
+            return False
+        return any(client_ip in network for network in self.server.config.allowed_networks)
+
+    def _read_json_body(self) -> dict[str, Any]:
+        content_length = int(self.headers.get("Content-Length", "0"))
+        if content_length <= 0:
+            return {}
+        payload = self.rfile.read(content_length)
+        if not payload:
+            return {}
+        body = json.loads(payload.decode("utf-8"))
+        if not isinstance(body, dict):
+            raise ValueError("Request body must be a JSON object.")
+        return body
+
+    def _handle_chat(self) -> None:
+        try:
+            body = self._read_json_body()
+        except Exception as exc:
+            self._write_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
+            return
+
+        command = str(body.get("message") or body.get("command") or "").strip()
+        if not command:
+            self._write_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Missing 'message'."})
+            return
+
+        session_id = str(body.get("session_id") or f"text:{self.client_address[0]}").strip()
+        source = str(body.get("source") or "http").strip()
+
+        reply_queue: queue.Queue = queue.Queue(maxsize=1)
+        self.server.central_queue.put(
+            Message(
+                type="text_cmd",
+                payload=TextPayload(
+                    command=command,
+                    session_id=session_id,
+                    source=source,
+                    reply_queue=reply_queue,
+                ),
+            )
+        )
+
+        try:
+            result = reply_queue.get(timeout=self.server.config.request_timeout)
+        except queue.Empty:
+            self._write_json(
+                HTTPStatus.GATEWAY_TIMEOUT,
+                {"ok": False, "error": "Agent request timed out.", "session_id": session_id},
+            )
+            return
+
+        status = HTTPStatus.OK if result.get("ok") else HTTPStatus.INTERNAL_SERVER_ERROR
+        self._write_json(status, result)
+
+    def _handle_reset_session(self) -> None:
+        try:
+            body = self._read_json_body()
+        except Exception as exc:
+            self._write_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
+            return
+
+        session_id = str(body.get("session_id") or "").strip()
+        if not session_id:
+            self._write_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Missing 'session_id'."})
+            return
+
+        agent_runtime.reset_session(session_id)
+        self._write_json(HTTPStatus.OK, {"ok": True, "session_id": session_id})
+
+    def _write_json(self, status: HTTPStatus, payload: dict[str, Any]) -> None:
+        encoded = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        self.wfile.write(encoded)
+
+    def _write_html(self, status: HTTPStatus, html: str) -> None:
+        encoded = html.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        self.wfile.write(encoded)
+
+    @staticmethod
+    def _chat_page() -> str:
+        return """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TALOS Text Agent</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #09110d;
+      --panel: #102017;
+      --panel-2: #15271d;
+      --line: #244533;
+      --text: #d9f6e2;
+      --muted: #87ad93;
+      --accent: #6bf7a3;
+      --danger: #ff7a7a;
+      --font: "Segoe UI", Tahoma, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font);
+      background:
+        radial-gradient(circle at top, rgba(107, 247, 163, 0.08), transparent 35%),
+        linear-gradient(180deg, #08100c 0%, #050805 100%);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    .wrap {
+      width: min(900px, calc(100vw - 32px));
+      margin: 24px auto;
+      padding: 20px;
+      border: 1px solid var(--line);
+      background: rgba(16, 32, 23, 0.92);
+      backdrop-filter: blur(8px);
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 24px;
+      letter-spacing: 0.08em;
+    }
+    p { color: var(--muted); }
+    .row {
+      display: grid;
+      gap: 12px;
+      margin-bottom: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    input, textarea, button {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      color: var(--text);
+      padding: 12px;
+      font: inherit;
+    }
+    textarea {
+      min-height: 120px;
+      resize: vertical;
+    }
+    button {
+      cursor: pointer;
+      background: linear-gradient(180deg, #193323 0%, #102217 100%);
+    }
+    button:hover { border-color: var(--accent); }
+    #messages {
+      margin-top: 18px;
+      display: grid;
+      gap: 12px;
+    }
+    .msg {
+      border: 1px solid var(--line);
+      padding: 12px;
+      background: rgba(9, 17, 13, 0.8);
+      white-space: pre-wrap;
+    }
+    .msg.user { border-left: 4px solid var(--accent); }
+    .msg.agent { border-left: 4px solid #5eb8ff; }
+    .msg.error { border-left: 4px solid var(--danger); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>TALOS Text Agent</h1>
+    <p>Designed to be reachable over Tailscale. Set a shared session ID if you want conversation continuity.</p>
+    <div class="row">
+      <div>
+        <label for="session">Session ID</label>
+        <input id="session" value="browser-session">
+      </div>
+      <div>
+        <label for="token">API Token</label>
+        <input id="token" type="password" placeholder="Optional if server requires it">
+      </div>
+    </div>
+    <label for="prompt">Message</label>
+    <textarea id="prompt" placeholder="Type a command or question for Monkey Butler."></textarea>
+    <div class="row">
+      <button id="send">Send</button>
+      <button id="reset">Reset Session</button>
+    </div>
+    <div id="messages"></div>
+  </div>
+  <script>
+    const messages = document.getElementById("messages");
+    const prompt = document.getElementById("prompt");
+    const session = document.getElementById("session");
+    const token = document.getElementById("token");
+
+    function addMessage(kind, text) {
+      const node = document.createElement("div");
+      node.className = `msg ${kind}`;
+      node.textContent = text;
+      messages.prepend(node);
+    }
+
+    async function postJson(path, payload) {
+      const headers = {"Content-Type": "application/json"};
+      if (token.value.trim()) {
+        headers["Authorization"] = `Bearer ${token.value.trim()}`;
+      }
+      const response = await fetch(path, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      if (!response.ok || data.ok === false) {
+        throw new Error(data.error || `HTTP ${response.status}`);
+      }
+      return data;
+    }
+
+    document.getElementById("send").addEventListener("click", async () => {
+      const text = prompt.value.trim();
+      if (!text) return;
+      addMessage("user", text);
+      prompt.value = "";
+      try {
+        const data = await postJson("/chat", {
+          message: text,
+          session_id: session.value.trim() || "browser-session",
+          source: "browser",
+        });
+        addMessage("agent", data.response || "");
+      } catch (error) {
+        addMessage("error", error.message);
+      }
+    });
+
+    document.getElementById("reset").addEventListener("click", async () => {
+      try {
+        await postJson("/sessions/reset", {
+          session_id: session.value.trim() || "browser-session",
+        });
+        addMessage("agent", "Session reset.");
+      } catch (error) {
+        addMessage("error", error.message);
+      }
+    });
+  </script>
+</body>
+</html>
+"""
+
+
+def start_text_agent_server(central_queue: queue.Queue) -> TextAgentHTTPServer | None:
+    try:
+        config = TextServerConfig.from_env()
+        if not config.enabled:
+            print("Text agent server disabled by configuration.")
+            return None
+
+        print(f"Starting text agent server on {config.host}:{config.port}...")
+        server = TextAgentHTTPServer((config.host, config.port), central_queue, config)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+
+        print(
+            "Text agent server listening on "
+            f"http://{config.host}:{config.port} "
+            f"(allowed networks: {', '.join(str(n) for n in config.allowed_networks)})"
+        )
+        if not config.api_token:
+            print("Text agent server has no API token configured; access is limited by the network allowlist only.")
+
+        return server
+    except Exception as exc:
+        print(f"Failed to start text agent server: {exc}")
+        return None
+
+
+def shutdown_text_agent_server(server: TextAgentHTTPServer | None) -> None:
+    if server is None:
+        return
+    server.shutdown()
+    server.server_close()

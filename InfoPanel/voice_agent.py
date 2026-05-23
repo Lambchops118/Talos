@@ -15,8 +15,8 @@ import speech_recognition as sr
 from   concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
+import agent_runtime
 from benchmarking import VoiceBenchmarkSession
-from local_mcp_client import get_local_mcp_client, shutdown_local_mcp_client
 from messages import Message, VoicePayload
 
 ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
@@ -54,24 +54,6 @@ polly_client = boto3.client(
     aws_secret_access_key = aws_secret_key,
     region_name           = 'us-west-2'
 )
-
-indoctrination = """
-You are Monkey Butler, an assistant styled after JARVIS from Iron Man.
-- The user is speaking to you through a microphone using google's speech recognizer. Inputs may not be transcribed perfectly. Try to infer the most likely intended input from the user. 
-- Tone: calm, polite, slightly dry British wit, never cruel or mocking.
-- keep responses brief as possible
-- try to answer in a sentence or two
-- Avoid slang and emojis; occasionally use understated humor.
-- you are a voice assistant. always answer as if you are talking, not outputting text.
-- you are an artificial intelligence construct. your tone should not be warm or friendly.
-- you are the personal AI assistant of one person. You do not have to be polite and can speak as if you know them, but you can call them sir when appropriate.
-Always respond as if you are a hyper-competent digital butler/engineer assisting the user.
-"""
-
-# =============== OPENAI CONVERSATION STATE ===============
-conversation_lock = threading.Lock()
-last_response_id  = None
-ai_model          = os.getenv("OPENAI_VOICE_MODEL", "gpt-4o-mini")
 
 # =============== WAKE WORD DETECTION (LOCAL) ===============
 _wake_model = None
@@ -311,92 +293,14 @@ def run_voice_recognition(central_queue): #Sets up background listening in a new
 
 def handle_command(command, gui_queue, state_snapshot="no recent status", benchmark=None): # Worker thread that processes commands recognized by the speech callback. Does Gpt interaction, function exec, TTS synthesis, and playback.
     print(f"Handling command: {command}") # Log the command being handled
-    global last_response_id
     try:
-        if benchmark:
-            benchmark.set_command(command)
-        print("Creating OpenAI response...")
-
-        mcp_client = get_local_mcp_client()
-        tool_defs = mcp_client.openai_tool_definitions()
-
-        def format_context(snapshot):
-            if not snapshot or snapshot == "no recent status":
-                return None
-            snapshot = " ".join(str(snapshot).split())
-            if len(snapshot) > 500:
-                snapshot = snapshot[:500].rsplit(" ", 1)[0] + "..."
-            return f"Context (read-only): {snapshot}"
-
-        input_items = []
-        context_message = format_context(state_snapshot)
-        if context_message:
-            input_items.append({"role": "system", "content": context_message})
-        input_items.append({"role": "user", "content": command})
-
-        with conversation_lock:
-            request_kwargs = {
-                "model": ai_model,
-                "instructions": indoctrination,
-                "tools": tool_defs,
-                "input": input_items,
-                "temperature": 0.5,
-                "max_output_tokens": 150,
-            }
-            if last_response_id:
-                request_kwargs["previous_response_id"] = last_response_id
-
-            if benchmark:
-                benchmark.mark_stage("llm_send")
-            response = client.responses.create(**request_kwargs)
-            if benchmark:
-                benchmark.mark_stage("llm_first_done")
-            tool_outputs = []
-
-
-            for item in response.output:
-                if item.type != "function_call":
-                    continue
-                print(f"FUNCTION CALL DETECTED: {item.name} with args {item.arguments}")
-                try:
-                    result = mcp_client.call_tool(item.name, item.arguments)
-                except KeyError:
-                    result = f"Unknown function: {item.name}"
-                except Exception as e:
-                    result = f"Error calling {item.name}: {e}"
-
-                tool_outputs.append({
-                    "type": "function_call_output",
-                    "call_id": item.call_id,
-                    "output": str(result),
-                })
-                print(f"Function '{item.name}' executed with result: {result}")
-
-            if tool_outputs:
-                if benchmark:
-                    benchmark.mark_stage("llm_followup_send")
-                followup = client.responses.create(
-                    model=ai_model,
-                    instructions=indoctrination,
-                    tools=tool_defs,
-                    input=tool_outputs,
-                    previous_response_id=response.id,
-                    temperature=0.5,
-                    max_output_tokens=150,
-                )
-                if benchmark:
-                    benchmark.mark_stage("llm_done")
-                response_text = (followup.output_text or "").strip()
-                last_response_id = followup.id
-            else:
-                if benchmark:
-                    benchmark.mark_stage("llm_done")
-                response_text = (response.output_text or "").strip()
-                last_response_id = response.id
-
-        response_text = response_text.replace("Monkey Butler:", "").strip() # There is probably a much better way to do this.
-        if benchmark:
-            benchmark.set_response_text(response_text)
+        print("Creating agent response...")
+        response_text = agent_runtime.run_command(
+            command,
+            state_snapshot,
+            session_id="voice",
+            benchmark=benchmark,
+        )
         print(f"Bot response: {response_text}")
 
         gui_queue.put(("VOICE_CMD", command, response_text)) # Send to GUI queue
@@ -448,7 +352,7 @@ def handle_command(command, gui_queue, state_snapshot="no recent status", benchm
 
 
 def shutdown() -> None:
-    shutdown_local_mcp_client()
+    agent_runtime.shutdown()
 
 
 def process_commands(processing_queue, gui_queue): #Continuously read commands from 'processing_queue' and submit them to a thread pool so multiple commands can be handled concurrently.

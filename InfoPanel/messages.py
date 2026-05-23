@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
 
 
-MessageType = Literal["voice_cmd", "status", "event", "ui"]
+MessageType = Literal["voice_cmd", "text_cmd", "status", "event", "ui"]
 
 @dataclass
 class Message:
@@ -22,6 +22,13 @@ class StatusPayload:
 class VoicePayload:
     command: str
     benchmark: Optional[Any] = None
+
+@dataclass
+class TextPayload:
+    command: str
+    session_id: str
+    source: str = "text"
+    reply_queue: Optional[Any] = None
 
 @dataclass
 class EventPayload:

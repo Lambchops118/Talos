@@ -57,6 +57,15 @@ Optional voice settings:
 - `WAKE_WORD_MODEL`
 - `OPENAI_VOICE_MODEL`
 
+Optional text-agent settings:
+
+- `TEXT_AGENT_ENABLED`
+- `TEXT_AGENT_HOST`
+- `TEXT_AGENT_PORT`
+- `TEXT_AGENT_API_TOKEN`
+- `TEXT_AGENT_TIMEOUT`
+- `TEXT_AGENT_ALLOWED_NETWORKS`
+
 Run the host app:
 
 ```bash
@@ -64,6 +73,67 @@ python InfoPanel/main.py
 ```
 
 Voice benchmark summaries print directly to the main app terminal. Each app run also creates a new timestamped CSV in `logs/`, for example `voice_benchmarks_20260511_124500_123456.csv`.
+
+### Text Chat Over Tailscale
+
+The host app now starts a small built-in text server alongside the voice pipeline. Voice and text both go through the same agent runtime and MCP tool path.
+
+Recommended setup:
+
+1. Install Tailscale on the homelab machine running TALOS and on the client machine.
+2. Join both machines to the same tailnet.
+3. Set `TEXT_AGENT_API_TOKEN` in `.env`.
+4. Leave `TEXT_AGENT_HOST=0.0.0.0`.
+5. Keep `TEXT_AGENT_ALLOWED_NETWORKS` at its default unless you need a custom allowlist.
+
+By default the text server only accepts requests from localhost and the standard Tailscale IPv4/IPv6 ranges, which keeps it off the rest of your LAN even when bound to all interfaces.
+
+Endpoints:
+
+- `GET /` serves a minimal browser chat UI
+- `GET /health` returns a health check
+- `POST /chat` sends a text prompt
+- `POST /sessions/reset` clears conversation state for one session
+
+Example request:
+
+```bash
+curl -X POST "http://<tailscale-hostname-or-ip>:8420/chat" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <your-token>" \
+  -d '{"message":"turn the fan on", "session_id":"main-pc"}'
+```
+
+Example reset:
+
+```bash
+curl -X POST "http://<tailscale-hostname-or-ip>:8420/sessions/reset" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <your-token>" \
+  -d '{"session_id":"main-pc"}'
+```
+
+### Terminal Client
+
+You can also use the built-in terminal client instead of raw `curl`.
+
+One-shot command:
+
+```bash
+python InfoPanel/chat_client.py --url "http://<tailscale-hostname-or-ip>:8420" --token "<your-token>" --session-id "main-pc" "turn the fan on"
+```
+
+Interactive mode:
+
+```bash
+python InfoPanel/chat_client.py --url "http://<tailscale-hostname-or-ip>:8420" --token "<your-token>" --session-id "main-pc"
+```
+
+On Windows, the repository root now includes `butler.cmd`, which launches the same client. If the repo root is on your `PATH`, you can run:
+
+```powershell
+butler --url "http://<tailscale-hostname-or-ip>:8420" --token "<your-token>" --session-id "main-pc"
+```
 
 ### Peripheral Deployment
 
