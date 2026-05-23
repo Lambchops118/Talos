@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from mcp_servers.aggregate import create_aggregate_server
+from mcp_servers.home_automation_server import create_home_automation_server
 
 
 def main() -> int:
-    server = create_aggregate_server()
+    server = create_home_automation_server()
     server.run()
     return 0
 
