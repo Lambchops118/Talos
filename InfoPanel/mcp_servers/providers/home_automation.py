@@ -13,6 +13,11 @@ def register(server: FastMCP) -> None:
         return actions.get_current_datetime()
 
     @server.tool()
+    def get_current_weather(location: str = "") -> str:
+        """Get the current weather, temperature, humidity, UV index, and related details."""
+        return actions.get_current_weather(location)
+
+    @server.tool()
     def water_plants(pot_number: int) -> str:
         """Send a signal to the pump circuit to water either pot 1 or pot 2."""
         return actions.water_plants(pot_number)

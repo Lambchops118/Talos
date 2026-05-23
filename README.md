@@ -58,6 +58,8 @@ Optional voice settings:
 - `WAKE_WORD_MODEL`
 - `OPENAI_VOICE_MODEL`
 - `TALOS_TIMEZONE`
+- `TALOS_WEATHER_LOCATION`
+- `TALOS_WEATHER_UNITS`
 
 Optional text-agent settings:
 
@@ -87,7 +89,10 @@ TALOS exposes local actions to the model through a local MCP server. The current
 
 Tool implementations are registered in provider modules under `InfoPanel/mcp_servers/providers/`. The existing home automation tools are defined in `InfoPanel/mcp_servers/providers/home_automation.py` with `@server.tool()` decorators, and their actual device logic lives in `InfoPanel/home_automation_actions.py`.
 
-The home automation provider also exposes `get_current_datetime`, which gives the agent the current local date, time, weekday, year, and timezone. Set `TALOS_TIMEZONE` in `.env` to force an IANA timezone such as `America/New_York`; otherwise TALOS falls back to the host machine's local timezone.
+The home automation provider also exposes:
+
+- `get_current_datetime`, which gives the agent the current local date, time, weekday, year, and timezone. Set `TALOS_TIMEZONE` in `.env` to force an IANA timezone such as `America/New_York`; otherwise TALOS falls back to the host machine's local timezone.
+- `get_current_weather`, which gives the agent the current weather, temperature, humidity, UV index, wind, and today's temperature range. By default it uses `TALOS_WEATHER_LOCATION` and `TALOS_WEATHER_UNITS` from `.env`, but the tool can also take a one-off location override.
 
 Server assembly is separate from tool definition:
 
