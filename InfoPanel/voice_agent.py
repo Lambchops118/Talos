@@ -5,6 +5,7 @@ import os
 import time
 import wave
 import audioop
+import tempfile
 import boto3
 import openai
 import whisper
@@ -38,6 +39,7 @@ audio_interface = pyaudio.PyAudio()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 aws_access_key = os.getenv("AWS_ACCESS_KEY")
 aws_secret_key = os.getenv("AWS_SECRET_KEY")
+VOICE_AUDIO_OUTPUT_DEVICE_INDEX = os.getenv("TALOS_AUDIO_OUTPUT_DEVICE_INDEX")
 
 if not ENV_PATH.exists():
     raise RuntimeError(
@@ -63,6 +65,32 @@ _wake_model = None
 _wake_model_lock = threading.Lock()
 _wake_infer_lock = threading.Lock()
 _command_executor = ThreadPoolExecutor(max_workers=2)
+
+
+def _resolve_output_device_index():
+    if not VOICE_AUDIO_OUTPUT_DEVICE_INDEX:
+        return None
+    try:
+        return int(VOICE_AUDIO_OUTPUT_DEVICE_INDEX)
+    except ValueError as exc:
+        raise RuntimeError(
+            "TALOS_AUDIO_OUTPUT_DEVICE_INDEX must be an integer if set."
+        ) from exc
+
+
+def _describe_output_device(device_index):
+    try:
+        if device_index is None:
+            info = audio_interface.get_default_output_device_info()
+        else:
+            info = audio_interface.get_device_info_by_index(device_index)
+    except Exception as exc:
+        return f"unavailable ({exc})"
+
+    name = info.get("name", "unknown")
+    host_api = info.get("hostApi")
+    max_channels = info.get("maxOutputChannels")
+    return f"{name} (index={info.get('index')}, hostApi={host_api}, maxOutputChannels={max_channels})"
 
 
 def _get_wake_model():
@@ -131,14 +159,17 @@ def _extract_transcription_words(transcription_result):
 def play_audio(filename, benchmark=None):
     try:
         chunk = 1024
+        output_device_index = _resolve_output_device_index()
         if benchmark:
             benchmark.mark_stage("audio_open_start")
         with wave.open(filename, "rb") as wf:
+            print(f"Opening playback stream for '{filename}' using output device: {_describe_output_device(output_device_index)}")
             stream = audio_interface.open(
                 format=audio_interface.get_format_from_width(wf.getsampwidth()),
                 channels=wf.getnchannels(),
                 rate=wf.getframerate(),
                 output=True,
+                output_device_index=output_device_index,
             )
             if benchmark:
                 benchmark.mark_stage("audio_stream_ready")
@@ -153,9 +184,11 @@ def play_audio(filename, benchmark=None):
                 data = wf.readframes(chunk)
             stream.stop_stream()
             stream.close()
+            print(f"Finished playback for '{filename}'.")
 
         time.sleep(0.2)
         os.remove(filename)
+        print(f"Removed temporary audio file '{filename}'.")
     except Exception as exc:
         if benchmark:
             benchmark.add_error(f"Audio playback error: {exc}")
@@ -295,14 +328,18 @@ def handle_command(command, benchmark=None):
                 benchmark.mark_stage("polly_done")
             print("Speech synthesized successfully.")
 
-        filename = "speech_output.wav"
+        with tempfile.NamedTemporaryFile(prefix="talos_speech_", suffix=".wav", delete=False) as tmp_file:
+            filename = tmp_file.name
+
         with wave.open(filename, "wb") as wf:
             wf.setnchannels(1)
             wf.setsampwidth(2)
             wf.setframerate(16000)
             wf.writeframesraw(pcm_data)
 
+        print(f"Wrote synthesized speech to temporary file '{filename}'.")
         audio_thread = threading.Thread(target=play_audio, args=(filename, benchmark))
+        print("Starting audio playback thread.")
         audio_thread.start()
     except openai.OpenAIError as exc:
         if benchmark:
