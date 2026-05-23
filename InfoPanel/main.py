@@ -8,7 +8,6 @@ from   dotenv import load_dotenv; load_dotenv()
 
 # My Libs (The Greatest)
 import tasks
-import voice_agent
 import screen as scrn
 import kitchen_screen
 import router
@@ -18,16 +17,14 @@ fp = 0
 scale = 0.75
 
 # =============== MAIN ENTRY POINT ===============
-if __name__ == "__main__":
+def main() -> int:
     gui_queue     = queue.Queue()  # Queue for GUI Updates                    --- this is the queue to show text on the GUI
     central_queue = queue.Queue()  # Central queue for voice/status/event data
     text_server   = None
-    stop_listening = None
 
     router_thread  = threading.Thread(target=router.router_loop, args=(central_queue, gui_queue), daemon=True)
     router_thread.start()
     text_server = text_agent_server.start_text_agent_server(central_queue)
-    stop_listening = voice_agent.run_voice_recognition(central_queue) # Start background listening
 
     scheduler = tasks.start_scheduler(gui_queue, central_queue)
 
@@ -37,8 +34,6 @@ if __name__ == "__main__":
         elif fp == 1:
             kitchen_screen.screen_main() # Run kitchen screen app
     finally:
-        if stop_listening: # Shut down background listener and command worker
-            stop_listening(wait_for_stop=False)
         central_queue.put(None)
         router_thread.join(timeout=2)
 
@@ -49,6 +44,9 @@ if __name__ == "__main__":
             pass
 
         text_agent_server.shutdown_text_agent_server(text_server)
-        voice_agent.shutdown()
-        voice_agent.audio_interface.terminate()
         print("Exiting cleanly.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

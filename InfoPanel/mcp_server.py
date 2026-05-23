@@ -5,7 +5,7 @@ from mcp_servers.aggregate import create_aggregate_server
 
 def main() -> int:
     server = create_aggregate_server()
-    server.run()
+    server.run(transport="stdio")
     return 0
 
 

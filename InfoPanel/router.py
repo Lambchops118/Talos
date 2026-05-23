@@ -1,9 +1,18 @@
 import queue
 import agent_runtime
-import voice_agent
 from   typing import Optional
 from state_store import StateStore
 from messages import Message, StatusPayload, TextPayload, VoicePayload
+
+
+def _run_agent_command(command: str, gui_queue: queue.Queue, snapshot: str, *, session_id: str) -> str:
+    response_text = agent_runtime.run_command(
+        command,
+        snapshot,
+        session_id=session_id,
+    )
+    gui_queue.put(("VOICE_CMD", command, response_text))
+    return response_text
 
 def router_loop(central_queue: queue.Queue, gui_queue: queue.Queue, stop_signal: Optional[object] = None):
     """
@@ -25,18 +34,13 @@ def router_loop(central_queue: queue.Queue, gui_queue: queue.Queue, stop_signal:
         elif msg.type == "voice_cmd":
             vp: VoicePayload = msg.payload
             snapshot = state.snapshot()
-            voice_agent.handle_command_with_context(vp.command, gui_queue, snapshot, vp.benchmark)
+            _run_agent_command(vp.command, gui_queue, snapshot, session_id="voice")
 
         elif msg.type == "text_cmd":
             tp: TextPayload = msg.payload
             snapshot = state.snapshot()
             try:
-                response_text = agent_runtime.run_command(
-                    tp.command,
-                    snapshot,
-                    session_id=tp.session_id,
-                )
-                gui_queue.put(("VOICE_CMD", tp.command, response_text))
+                response_text = _run_agent_command(tp.command, gui_queue, snapshot, session_id=tp.session_id)
                 if tp.reply_queue is not None:
                     tp.reply_queue.put(
                         {
@@ -60,8 +64,11 @@ def router_loop(central_queue: queue.Queue, gui_queue: queue.Queue, stop_signal:
         elif msg.type == "event":
             if msg.needs_llm:
                 snapshot = state.snapshot()
-                voice_agent.handle_command_with_context(
-                    f"Event {msg.payload.name}: {msg.payload.data}", gui_queue, snapshot
+                _run_agent_command(
+                    f"Event {msg.payload.name}: {msg.payload.data}",
+                    gui_queue,
+                    snapshot,
+                    session_id="events",
                 )
 
         elif msg.type == "ui":

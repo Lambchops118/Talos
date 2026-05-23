@@ -4,6 +4,7 @@ import json
 import subprocess
 import sys
 import threading
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,7 @@ class LocalMcpClient:
         self._lock = threading.Lock()
         self._next_id = 1
         self._tool_cache: list[dict[str, Any]] | None = None
+        self._stderr_lines: deque[str] = deque(maxlen=20)
 
     def start(self) -> None:
         if self._process and self._process.poll() is None:
@@ -30,6 +32,7 @@ class LocalMcpClient:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
+        self._stderr_lines.clear()
         self._start_stderr_drain()
         self._initialize()
 
@@ -164,7 +167,7 @@ class LocalMcpClient:
         while True:
             line = process.stdout.readline()
             if not line:
-                raise RuntimeError("Local MCP server closed unexpectedly.")
+                raise RuntimeError(self._server_crash_context())
             if line == b"\r\n":
                 break
             decoded = line.decode("ascii").strip()
@@ -177,7 +180,7 @@ class LocalMcpClient:
 
         payload = process.stdout.read(content_length)
         if len(payload) != content_length:
-            raise RuntimeError("Local MCP server ended before the full payload was read.")
+            raise RuntimeError(self._server_crash_context())
 
         message = json.loads(payload.decode("utf-8"))
         if not isinstance(message, dict):
@@ -186,7 +189,7 @@ class LocalMcpClient:
 
     def _require_process(self) -> subprocess.Popen[bytes]:
         if self._process is None or self._process.poll() is not None:
-            raise RuntimeError("Local MCP server is not running.")
+            raise RuntimeError(self._server_crash_context())
         return self._process
 
     def _start_stderr_drain(self) -> None:
@@ -202,6 +205,7 @@ class LocalMcpClient:
                 except Exception:
                     continue
                 if line:
+                    self._stderr_lines.append(line)
                     print(f"[talos-mcp] {line}")
 
         thread = threading.Thread(target=drain, daemon=True)
@@ -236,6 +240,11 @@ class LocalMcpClient:
         if structured is not None:
             return json.dumps(structured)
         return ""
+
+    def _server_crash_context(self) -> str:
+        if not self._stderr_lines:
+            return "Local MCP server closed unexpectedly."
+        return "Local MCP server closed unexpectedly. Recent stderr:\n" + "\n".join(self._stderr_lines)
 
 
 _shared_client: LocalMcpClient | None = None

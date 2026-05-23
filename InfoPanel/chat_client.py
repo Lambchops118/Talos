@@ -1,94 +1,15 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
-import urllib.error
-import urllib.parse
-import urllib.request
 
+from agent_service_client import check_health, reset_session, send_message
 
 DEFAULT_URL = os.getenv("TALOS_TEXT_AGENT_URL", "http://127.0.0.1:8420")
 DEFAULT_TOKEN = os.getenv("TALOS_TEXT_AGENT_TOKEN", os.getenv("TEXT_AGENT_API_TOKEN", ""))
 DEFAULT_SESSION_ID = os.getenv("TALOS_TEXT_AGENT_SESSION", "main-pc")
 DEFAULT_TIMEOUT = float(os.getenv("TALOS_TEXT_AGENT_CLIENT_TIMEOUT", "30"))
-
-
-def _build_url(base_url: str, path: str) -> str:
-    return urllib.parse.urljoin(base_url.rstrip("/") + "/", path.lstrip("/"))
-
-
-def _request_json(
-    base_url: str,
-    path: str,
-    payload: dict,
-    token: str,
-    timeout: float,
-) -> dict:
-    data = json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(
-        _build_url(base_url, path),
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    if token:
-        request.add_header("Authorization", f"Bearer {token}")
-
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            raw = response.read().decode("utf-8")
-            body = json.loads(raw) if raw else {}
-            if not isinstance(body, dict):
-                raise RuntimeError("Server returned a non-object JSON payload.")
-            return body
-    except urllib.error.HTTPError as exc:
-        body_text = exc.read().decode("utf-8", errors="replace")
-        message = body_text or str(exc)
-        raise RuntimeError(f"HTTP {exc.code}: {message}") from exc
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"Connection error: {exc.reason}") from exc
-
-
-def check_health(base_url: str, timeout: float) -> None:
-    request = urllib.request.Request(_build_url(base_url, "/health"), method="GET")
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            raw = response.read().decode("utf-8")
-            body = json.loads(raw) if raw else {}
-            print(f"Health: {body}")
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"Could not reach {base_url}: {exc.reason}") from exc
-
-
-def send_message(base_url: str, token: str, session_id: str, timeout: float, message: str) -> str:
-    body = _request_json(
-        base_url,
-        "/chat",
-        {
-            "message": message,
-            "session_id": session_id,
-            "source": "terminal",
-        },
-        token,
-        timeout,
-    )
-    if not body.get("ok"):
-        raise RuntimeError(body.get("error", "Unknown server error"))
-    return str(body.get("response", "")).strip()
-
-
-def reset_session(base_url: str, token: str, session_id: str, timeout: float) -> None:
-    body = _request_json(
-        base_url,
-        "/sessions/reset",
-        {"session_id": session_id},
-        token,
-        timeout,
-    )
-    if not body.get("ok"):
-        raise RuntimeError(body.get("error", "Unknown server error"))
 
 
 def run_repl(base_url: str, token: str, session_id: str, timeout: float) -> int:
@@ -108,14 +29,21 @@ def run_repl(base_url: str, token: str, session_id: str, timeout: float) -> int:
         if user_input in {"/exit", "/quit"}:
             return 0
         if user_input == "/reset":
-            reset_session(base_url, token, session_id, timeout)
+            reset_session(session_id, base_url=base_url, token=token, timeout=timeout)
             print("Session reset.")
             continue
         if user_input == "/health":
-            check_health(base_url, timeout)
+            print(f"Health: {check_health(base_url=base_url, timeout=timeout)}")
             continue
 
-        response = send_message(base_url, token, session_id, timeout, user_input)
+        response = send_message(
+            user_input,
+            session_id=session_id,
+            source="terminal",
+            base_url=base_url,
+            token=token,
+            timeout=timeout,
+        )
         print(response)
 
 
@@ -136,21 +64,27 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.health:
-            check_health(args.url, args.timeout)
+            print(f"Health: {check_health(base_url=args.url, timeout=args.timeout)}")
             return 0
 
         if args.reset:
-            reset_session(args.url, args.token, args.session_id, args.timeout)
+            reset_session(
+                args.session_id,
+                base_url=args.url,
+                token=args.token,
+                timeout=args.timeout,
+            )
             print("Session reset.")
             return 0
 
         if args.message:
             response = send_message(
-                args.url,
-                args.token,
-                args.session_id,
-                args.timeout,
                 " ".join(args.message).strip(),
+                session_id=args.session_id,
+                source="terminal",
+                base_url=args.url,
+                token=args.token,
+                timeout=args.timeout,
             )
             print(response)
             return 0

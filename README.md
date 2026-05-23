@@ -75,6 +75,33 @@ python InfoPanel/main.py
 
 Voice benchmark summaries print directly to the main app terminal. Each app run also creates a new timestamped CSV in `logs/`, for example `voice_benchmarks_20260511_124500_123456.csv`.
 
+### Split Agent And Voice Worker
+
+TALOS can now run as two separate processes:
+
+- main agent process: router, scheduler, text server, GUI, MCP/runtime
+- voice worker process: microphone, wake word, Whisper, Polly playback
+
+Start the main agent:
+
+```bash
+python InfoPanel/agent_main.py
+```
+
+or equivalently:
+
+```bash
+python InfoPanel/main.py
+```
+
+Start the voice worker separately:
+
+```bash
+python InfoPanel/voice_worker.py
+```
+
+The voice worker sends recognized commands to the main agent over the text-agent HTTP API using `TALOS_TEXT_AGENT_URL` and `TALOS_TEXT_AGENT_TOKEN`.
+
 ### Text Chat Over Tailscale
 
 The host app now starts a small built-in text server alongside the voice pipeline. Voice and text both go through the same agent runtime and MCP tool path.
