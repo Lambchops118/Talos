@@ -17,6 +17,16 @@ def run_repl(base_url: str, token: str, session_id: str, timeout: float) -> int:
     print(f"Session ID: {session_id}")
     print("Commands: /reset, /health, /exit")
 
+    print(r"""
+ __  __             _                ____        _   _           
+|  \/  | ___  _ __ | | _____ _   _  | __ ) _   _| |_| | ___ _ __ 
+| |\/| |/ _ \| '_ \| |/ / _ \ | | | |  _ \| | | | __| |/ _ \ '__|
+| |  | | (_) | | | |   <  __/ |_| | | |_) | |_| | |_| |  __/ |   
+|_|  |_|\___/|_| |_|_|\_\___|\__, | |____/ \__,_|\__|_|\___|_|   
+                             |___/                             
+          
+""")
+
     while True:
         try:
             user_input = input("butler> ").strip()

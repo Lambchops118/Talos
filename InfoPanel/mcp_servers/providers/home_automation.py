@@ -8,6 +8,11 @@ def register(server: FastMCP) -> None:
     """Register the existing home automation tools on a FastMCP server."""
 
     @server.tool()
+    def get_current_datetime() -> str:
+        """Get the current local date, time, year, and timezone for TALOS."""
+        return actions.get_current_datetime()
+
+    @server.tool()
     def water_plants(pot_number: int) -> str:
         """Send a signal to the pump circuit to water either pot 1 or pot 2."""
         return actions.water_plants(pot_number)
