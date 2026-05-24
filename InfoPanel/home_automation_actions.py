@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import re
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -21,7 +20,7 @@ TIMEZONE_NAME = os.getenv("TALOS_TIMEZONE", "").strip()
 OPEN_WEATHER_API_KEY = os.getenv("OPEN_WEATHER_API_KEY", "").strip()
 WEATHER_LOCATION = os.getenv("TALOS_WEATHER_LOCATION", "").strip()
 WEATHER_UNITS = os.getenv("TALOS_WEATHER_UNITS", "imperial").strip().lower()
-OPENWEATHER_GEOCODE_URL = "https://api.openweathermap.org/geo/1.0/direct"
+OPENWEATHER_CURRENT_URL = "https://api.openweathermap.org/data/2.5/weather"
 OPENWEATHER_ONECALL_URL = "https://api.openweathermap.org/data/3.0/onecall"
 
 
@@ -83,8 +82,8 @@ def get_current_weather(location: str = "") -> str:
         raise ValueError("OPEN_WEATHER_API_KEY is not configured.")
 
     try:
-        latitude, longitude, resolved_location = _geocode_location(requested_location)
-        weather_data = _fetch_weather(latitude, longitude)
+        current_data = _fetch_current_weather(requested_location)
+        onecall_data = _fetch_onecall(current_data)
     except requests.HTTPError as exc:
         response = exc.response
         status_code = response.status_code if response is not None else "unknown"
@@ -92,47 +91,60 @@ def get_current_weather(location: str = "") -> str:
             raise RuntimeError(
                 "OpenWeather rejected the request. Check OPEN_WEATHER_API_KEY and One Call API access."
             ) from exc
+        if status_code == 404:
+            raise RuntimeError(f"Could not find weather location: {requested_location}") from exc
         raise RuntimeError(f"Weather request failed with HTTP {status_code}.") from exc
     except requests.RequestException as exc:
         raise RuntimeError(f"Weather request failed: {exc}") from exc
 
-    current = weather_data["current"]
-    daily = weather_data.get("daily", [])
-    today = daily[0] if daily else {}
-    timezone_name = weather_data.get("timezone", "unknown")
+    current = current_data
+    onecall_current = onecall_data.get("current", {})
+    today = (onecall_data.get("daily") or [{}])[0]
+    timezone_name = onecall_data.get("timezone", _format_timezone_name(current.get("timezone")))
     units_label = _units_label()
+    resolved_location = _format_current_location(current)
 
     lines = [
         f"Location: {resolved_location}",
-        f"Observation time: {_format_unix_time(current.get('dt'), timezone_name)}",
+        f"Observation time: {_format_unix_time(current.get('dt'), current.get('timezone'))}",
         f"Timezone: {timezone_name}",
         f"Weather: {_weather_summary(current)}",
-        f"Temperature: {current.get('temp')} {units_label['temperature']}",
-        f"Feels like: {current.get('feels_like')} {units_label['temperature']}",
-        f"Humidity: {current.get('humidity')}%",
-        f"UV index: {current.get('uvi', 'unknown')}",
-        f"Wind: {current.get('wind_speed')} {units_label['wind_speed']}",
-        f"Cloud cover: {current.get('clouds', 'unknown')}%",
+        f"Temperature: {current.get('main', {}).get('temp')} {units_label['temperature']}",
+        f"Feels like: {current.get('main', {}).get('feels_like')} {units_label['temperature']}",
+        f"Humidity: {current.get('main', {}).get('humidity')}%",
+        f"UV index: {onecall_current.get('uvi', 'unknown')}",
+        f"Wind: {current.get('wind', {}).get('speed')} {units_label['wind_speed']}",
+        f"Cloud cover: {current.get('clouds', {}).get('all', 'unknown')}%",
     ]
 
-    if "dew_point" in current:
-        lines.append(f"Dew point: {current['dew_point']} {units_label['temperature']}")
-    if "pressure" in current:
-        lines.append(f"Pressure: {current['pressure']} hPa")
+    main = current.get("main", {})
+    wind = current.get("wind", {})
+    sys = current.get("sys", {})
+
+    if "temp_min" in main and "temp_max" in main:
+        lines.append(
+            f"Current range: {main['temp_min']} to {main['temp_max']} {units_label['temperature']}"
+        )
+    if "pressure" in main:
+        lines.append(f"Pressure: {main['pressure']} hPa")
     if "visibility" in current:
         lines.append(f"Visibility: {_format_visibility(current['visibility'])}")
-    if "pop" in today:
-        lines.append(f"Chance of precipitation today: {round(float(today['pop']) * 100)}%")
-    if "temp" in today:
-        day_temp = today["temp"]
-        if "max" in day_temp:
-            lines.append(f"Today's high: {day_temp['max']} {units_label['temperature']}")
-        if "min" in day_temp:
-            lines.append(f"Today's low: {day_temp['min']} {units_label['temperature']}")
-    if "sunrise" in current:
-        lines.append(f"Sunrise: {_format_unix_time(current['sunrise'], timezone_name, time_only=True)}")
-    if "sunset" in current:
-        lines.append(f"Sunset: {_format_unix_time(current['sunset'], timezone_name, time_only=True)}")
+    if "gust" in wind:
+        lines.append(f"Wind gusts: {wind['gust']} {units_label['wind_speed']}")
+    if "dew_point" in onecall_current:
+        lines.append(f"Dew point: {onecall_current['dew_point']} {units_label['temperature']}")
+    today_precip = _daily_precip_percent(today)
+    if today_precip is not None:
+        lines.append(f"Chance of precipitation today: {today_precip}%")
+    today_temps = today.get("temp", {})
+    if "max" in today_temps:
+        lines.append(f"Today's high: {today_temps['max']} {units_label['temperature']}")
+    if "min" in today_temps:
+        lines.append(f"Today's low: {today_temps['min']} {units_label['temperature']}")
+    if "sunrise" in sys:
+        lines.append(f"Sunrise: {_format_unix_time(sys['sunrise'], current.get('timezone'), time_only=True)}")
+    if "sunset" in sys:
+        lines.append(f"Sunset: {_format_unix_time(sys['sunset'], current.get('timezone'), time_only=True)}")
 
     return "\n".join(lines)
 
@@ -163,42 +175,13 @@ def _get_timezone_name(now: datetime) -> str:
     return str(name) if name else "local"
 
 
-def _geocode_location(location: str) -> tuple[float, float, str]:
+def _fetch_current_weather(location: str) -> dict:
     response = requests.get(
-        OPENWEATHER_GEOCODE_URL,
+        OPENWEATHER_CURRENT_URL,
         params={
             "q": location,
-            "limit": 1,
-            "appid": OPEN_WEATHER_API_KEY,
-        },
-        timeout=10,
-    )
-    response.raise_for_status()
-
-    matches = response.json()
-    if not matches:
-        raise ValueError(f"Could not find weather location: {location}")
-
-    match = matches[0]
-    resolved_location = _format_location(match)
-    return float(match["lat"]), float(match["lon"]), resolved_location
-
-
-def _normalize_location_query(location: str) -> str:
-    normalized = " ".join(str(location).split())
-    normalized = re.sub(r"\s*,\s*", ", ", normalized)
-    return normalized.strip(" ,")
-
-
-def _fetch_weather(latitude: float, longitude: float) -> dict:
-    response = requests.get(
-        OPENWEATHER_ONECALL_URL,
-        params={
-            "lat": latitude,
-            "lon": longitude,
             "appid": OPEN_WEATHER_API_KEY,
             "units": _weather_units(),
-            "exclude": "minutely,alerts",
         },
         timeout=10,
     )
@@ -206,10 +189,42 @@ def _fetch_weather(latitude: float, longitude: float) -> dict:
     return response.json()
 
 
-def _format_location(match: dict) -> str:
-    parts = [match.get("name", "").strip()]
-    state = str(match.get("state", "")).strip()
-    country = str(match.get("country", "")).strip()
+def _fetch_onecall(current: dict) -> dict:
+    coordinates = current.get("coord", {})
+    latitude = coordinates.get("lat")
+    longitude = coordinates.get("lon")
+    if latitude is None or longitude is None:
+        raise RuntimeError("Current weather response did not include coordinates for One Call lookup.")
+
+    response = requests.get(
+        OPENWEATHER_ONECALL_URL,
+        params={
+            "lat": latitude,
+            "lon": longitude,
+            "appid": OPEN_WEATHER_API_KEY,
+            "units": _weather_units(),
+            "exclude": "minutely,alerts,hourly",
+        },
+        timeout=10,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def _normalize_location_query(location: str) -> str:
+    normalized = " ".join(str(location).split())
+    while " ," in normalized:
+        normalized = normalized.replace(" ,", ",")
+    while ",," in normalized:
+        normalized = normalized.replace(",,", ",")
+    return normalized.strip(" ,")
+
+
+def _format_current_location(current: dict) -> str:
+    parts = [str(current.get("name", "")).strip()]
+    sys = current.get("sys", {})
+    country = str(sys.get("country", "")).strip()
+    state = str(current.get("state", "")).strip()
     if state:
         parts.append(state)
     if country:
@@ -217,13 +232,20 @@ def _format_location(match: dict) -> str:
     return ", ".join(part for part in parts if part)
 
 
-def _format_unix_time(timestamp: int | None, timezone_name: str, *, time_only: bool = False) -> str:
+def _format_unix_time(
+    timestamp: int | None,
+    timezone_offset_seconds: int | None,
+    *,
+    time_only: bool = False,
+) -> str:
     if not timestamp:
         return "unknown"
 
-    try:
-        moment = datetime.fromtimestamp(timestamp, ZoneInfo(timezone_name))
-    except ZoneInfoNotFoundError:
+    if isinstance(timezone_offset_seconds, int):
+        from datetime import timezone, timedelta
+
+        moment = datetime.fromtimestamp(timestamp, timezone(timedelta(seconds=timezone_offset_seconds)))
+    else:
         moment = datetime.fromtimestamp(timestamp).astimezone()
 
     return moment.strftime("%H:%M:%S") if time_only else moment.isoformat(timespec="seconds")
@@ -264,3 +286,18 @@ def _format_visibility(visibility_meters: int | float) -> str:
         return f"{miles:.1f} miles"
     kilometers = float(visibility_meters) / 1000
     return f"{kilometers:.1f} km"
+
+
+def _format_timezone_name(timezone_offset_seconds: int | None) -> str:
+    if not isinstance(timezone_offset_seconds, int):
+        return "unknown"
+    sign = "+" if timezone_offset_seconds >= 0 else "-"
+    total_minutes = abs(timezone_offset_seconds) // 60
+    hours, minutes = divmod(total_minutes, 60)
+    return f"UTC{sign}{hours:02d}:{minutes:02d}"
+
+
+def _daily_precip_percent(day: dict) -> int | None:
+    if "pop" not in day:
+        return None
+    return round(float(day["pop"]) * 100)
