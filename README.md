@@ -60,6 +60,7 @@ Optional voice settings:
 - `TALOS_TIMEZONE`
 - `TALOS_WEATHER_LOCATION`
 - `TALOS_WEATHER_UNITS`
+- `TALOS_MCP_SERVERS`
 
 Optional text-agent settings:
 
@@ -80,12 +81,21 @@ Voice benchmark summaries print directly to the main app terminal. Each app run 
 
 ### MCP Tools
 
-TALOS exposes local actions to the model through a local MCP server. The current flow is:
+TALOS can expose tools from one or more MCP servers. By default, if `TALOS_MCP_SERVERS` is unset, it uses the built-in local aggregate server in `InfoPanel/mcp_server.py`. If `TALOS_MCP_SERVERS` is set, `InfoPanel/local_mcp_client.py` treats it as the full MCP server list and manages all configured connections.
 
-1. `InfoPanel/mcp_server.py` starts the aggregate MCP server over stdio.
-2. `InfoPanel/local_mcp_client.py` connects to that server, calls `tools/list`, and converts the returned schemas into OpenAI tool definitions.
-3. `InfoPanel/agent_runtime.py` sends those tool definitions with each model request.
-4. If the model chooses a tool, `agent_runtime.py` calls it back through the local MCP client by tool name.
+The current flow is:
+
+1. `InfoPanel/local_mcp_client.py` starts one or more MCP connections.
+2. Each configured server is queried with `tools/list`.
+3. The returned tools are merged into one tool surface for `InfoPanel/agent_runtime.py`.
+4. If the model chooses a tool, TALOS routes that call back to the MCP server that owns it.
+
+Supported transports in the current client:
+
+- local `stdio` servers
+- remote `streamable_http` servers
+
+If two servers expose the same tool name, you must set a `tool_prefix` on at least one of them so the merged tool list stays unique.
 
 Tool implementations are registered in provider modules under `InfoPanel/mcp_servers/providers/`. The existing home automation tools are defined in `InfoPanel/mcp_servers/providers/home_automation.py` with `@server.tool()` decorators, and their actual device logic lives in `InfoPanel/home_automation_actions.py`.
 
@@ -99,6 +109,33 @@ Server assembly is separate from tool definition:
 - `InfoPanel/mcp_servers/aggregate.py` defines the tool surface used by the local agent runtime.
 - `InfoPanel/mcp_servers/home_automation_server.py` and `InfoPanel/mcp_servers/tv_control_server.py` expose standalone servers for specific domains.
 - `InfoPanel/mcp_http_app.py` mounts those domain servers over HTTP.
+
+Example `TALOS_MCP_SERVERS` value:
+
+```json
+[
+  {
+    "name": "talos-local",
+    "transport": "stdio",
+    "command": "python",
+    "args": ["InfoPanel/mcp_server.py"]
+  },
+  {
+    "name": "github",
+    "transport": "streamable_http",
+    "url": "https://example.com/mcp",
+    "auth_token_env": "GITHUB_MCP_TOKEN",
+    "tool_prefix": "github_"
+  }
+]
+```
+
+Notes:
+
+- Once `TALOS_MCP_SERVERS` is set, it replaces the default built-in MCP list. Include your local TALOS server explicitly if you still want local home-automation tools.
+- `auth_token_env` tells TALOS which environment variable contains a bearer token for that remote MCP server.
+- `headers` can also be provided directly in the JSON config if a server needs custom headers.
+- Use `tool_prefix` when a remote server might expose names that collide with local tools.
 
 To add a new MCP tool in an existing domain:
 
