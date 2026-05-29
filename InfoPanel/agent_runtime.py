@@ -52,6 +52,16 @@ OPENAI_SERVER_ERROR_RETRY_DELAY = max(
     0.0, float(os.getenv("TALOS_OPENAI_SERVER_ERROR_RETRY_DELAY", "1.5"))
 )
 KICAD_TOOL_PREFIX = os.getenv("KICAD_MCP_TOOL_PREFIX", "kicad_").strip() or "kicad_"
+TOOL_OUTPUT_CHAR_LIMIT = max(256, int(os.getenv("TALOS_TOOL_OUTPUT_CHAR_LIMIT", "4000")))
+TOOL_OUTPUT_SUMMARY_ENABLED = (
+    os.getenv("TALOS_SUMMARIZE_TOOL_OUTPUTS", "1").strip().lower() not in {"0", "false", "no", "off"}
+)
+TOOL_OUTPUT_SUMMARY_PREVIEW_ITEMS = max(
+    1, int(os.getenv("TALOS_TOOL_OUTPUT_SUMMARY_PREVIEW_ITEMS", "5"))
+)
+TOOL_OUTPUT_SUMMARY_PREVIEW_KEYS = max(
+    1, int(os.getenv("TALOS_TOOL_OUTPUT_SUMMARY_PREVIEW_KEYS", "12"))
+)
 
 _conversation_lock = threading.Lock()
 _last_response_ids: dict[str, str] = {}
@@ -224,6 +234,127 @@ def _parse_function_arguments(arguments: Any) -> dict[str, Any]:
     raise TypeError("Tool arguments must be a dict, JSON string, or None.")
 
 
+def _truncate_text(value: str, limit: int = TOOL_OUTPUT_CHAR_LIMIT) -> str:
+    if len(value) <= limit:
+        return value
+    if limit <= 3:
+        return value[:limit]
+    return value[: limit - 3] + "..."
+
+
+def _summarize_jsonish_value(value: Any, *, depth: int = 0) -> Any:
+    if depth >= 2:
+        if isinstance(value, dict):
+            return f"<object with {len(value)} keys>"
+        if isinstance(value, list):
+            return f"<list with {len(value)} items>"
+        return value
+
+    if isinstance(value, dict):
+        summary: dict[str, Any] = {}
+        preferred_keys = (
+            "success",
+            "message",
+            "error",
+            "errorDetails",
+            "name",
+            "path",
+            "project",
+            "board",
+            "component",
+            "components",
+            "net",
+            "nets",
+            "warnings",
+        )
+        for key in preferred_keys:
+            if key not in value:
+                continue
+            item = value[key]
+            if isinstance(item, (dict, list)):
+                summary[key] = _summarize_jsonish_value(item, depth=depth + 1)
+            else:
+                summary[key] = item
+
+        remaining_keys = [key for key in value.keys() if key not in summary]
+        for key in remaining_keys[:TOOL_OUTPUT_SUMMARY_PREVIEW_KEYS]:
+            item = value[key]
+            if isinstance(item, (str, int, float, bool)) or item is None:
+                summary[key] = item
+            elif isinstance(item, dict):
+                summary[key] = f"<object with {len(item)} keys>"
+            elif isinstance(item, list):
+                summary[key] = f"<list with {len(item)} items>"
+            else:
+                summary[key] = f"<{type(item).__name__}>"
+
+        if len(remaining_keys) > TOOL_OUTPUT_SUMMARY_PREVIEW_KEYS:
+            summary["_remaining_keys"] = len(remaining_keys) - TOOL_OUTPUT_SUMMARY_PREVIEW_KEYS
+        return summary
+
+    if isinstance(value, list):
+        preview = [
+            _summarize_jsonish_value(item, depth=depth + 1)
+            for item in value[:TOOL_OUTPUT_SUMMARY_PREVIEW_ITEMS]
+        ]
+        summary = {
+            "item_count": len(value),
+            "preview": preview,
+        }
+        if len(value) > TOOL_OUTPUT_SUMMARY_PREVIEW_ITEMS:
+            summary["remaining_items"] = len(value) - TOOL_OUTPUT_SUMMARY_PREVIEW_ITEMS
+        return summary
+
+    if isinstance(value, str):
+        return _truncate_text(" ".join(value.split()))
+    return value
+
+
+def _summarize_tool_result(name: str, raw_output: str) -> str | None:
+    stripped = raw_output.strip()
+    if not stripped:
+        return raw_output
+
+    try:
+        parsed = json.loads(stripped)
+    except Exception:
+        condensed = " ".join(raw_output.split())
+        if len(condensed) >= len(raw_output) or len(raw_output) > TOOL_OUTPUT_CHAR_LIMIT:
+            return condensed
+        return None
+
+    summary_payload = {
+        "tool": name,
+        "summary": _summarize_jsonish_value(parsed),
+    }
+    return json.dumps(summary_payload, ensure_ascii=True)
+
+
+def _shape_tool_output(name: str, result: Any) -> str:
+    raw_output = str(result)
+    shaped_output = raw_output
+    used_summary = False
+
+    if TOOL_OUTPUT_SUMMARY_ENABLED:
+        summary_output = _summarize_tool_result(name, raw_output)
+        if summary_output is not None and len(summary_output) < len(raw_output):
+            shaped_output = summary_output
+            used_summary = True
+
+    truncated = False
+    if len(shaped_output) > TOOL_OUTPUT_CHAR_LIMIT:
+        shaped_output = _truncate_text(shaped_output)
+        truncated = True
+
+    if used_summary or truncated or len(raw_output) > TOOL_OUTPUT_CHAR_LIMIT:
+        print(
+            f"Tool output shaped for {name}: raw={len(raw_output)} chars, "
+            f"sent={len(shaped_output)} chars, summary={used_summary}, truncated={truncated}"
+        )
+
+    return shaped_output
+
+
 def _invoke_host_tool(mcp_client: Any, name: str, arguments: Any) -> str:
     parsed_arguments = _parse_function_arguments(arguments)
     if name == "list_mcp_resources":
@@ -263,14 +394,15 @@ def _collect_tool_outputs(response: Any, mcp_client: Any) -> list[dict[str, Any]
         except Exception as exc:
             result = f"Error calling {item.name}: {exc}"
 
+        shaped_output = _shape_tool_output(item.name, result)
         tool_outputs.append(
             {
                 "type": "function_call_output",
                 "call_id": item.call_id,
-                "output": str(result),
+                "output": shaped_output,
             }
         )
-        print(f"Function '{item.name}' executed with result: {result}")
+        print(f"Function '{item.name}' executed with result: {_truncate_text(str(result), 600)}")
     return tool_outputs
 
 
