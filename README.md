@@ -79,7 +79,7 @@ python InfoPanel/main.py
 
 Voice benchmark summaries print directly to the main app terminal. Each app run also creates a new timestamped CSV in `logs/`, for example `voice_benchmarks_20260511_124500_123456.csv`.
 
-### MCP Tools
+### MCP Tools And Resources
 
 TALOS can expose tools from one or more MCP servers. By default, if `TALOS_MCP_SERVERS` is unset, it uses the built-in local aggregate server in `InfoPanel/mcp_server.py`. If `TALOS_MCP_SERVERS` is set, `InfoPanel/local_mcp_client.py` treats it as the full MCP server list and manages all configured connections.
 
@@ -88,7 +88,8 @@ The current flow is:
 1. `InfoPanel/local_mcp_client.py` starts one or more MCP connections.
 2. Each configured server is queried with `tools/list`.
 3. The returned tools are merged into one tool surface for `InfoPanel/agent_runtime.py`.
-4. If the model chooses a tool, TALOS routes that call back to the MCP server that owns it.
+4. The runtime also exposes host-level helper tools for MCP resources: `list_mcp_resources`, `list_mcp_resource_templates`, and `read_mcp_resource`.
+5. If the model chooses a tool, TALOS routes that call back to the MCP server that owns it.
 
 Supported transports in the current client:
 
@@ -136,6 +137,24 @@ Notes:
 - `auth_token_env` tells TALOS which environment variable contains a bearer token for that remote MCP server.
 - `headers` can also be provided directly in the JSON config if a server needs custom headers.
 - Use `tool_prefix` when a remote server might expose names that collide with local tools.
+- TALOS now supports multi-step tool execution loops. Set `TALOS_MAX_TOOL_CALL_ROUNDS` in `.env` if you need to raise or lower the default limit of `8`.
+- Resource reads are text-first. Binary resources are surfaced with MIME metadata and a base64 preview so the model can reason about what is available without flooding context.
+
+KiCad helper integration:
+
+- Set `KICAD_MCP_SERVER_PATH` to a local checkout of `mixelpixx/KiCAD-MCP-Server` and TALOS will append it automatically as a `stdio` MCP server.
+- The helper accepts either the repo root or a direct path to `dist/index.js`.
+- Use `KICAD_PYTHONPATH`, `KICAD_PYTHON`, `KICAD_AUTO_LAUNCH`, `KICAD_MCP_LOG_LEVEL`, and `KICAD_MCP_DEV` to mirror the upstream KiCad MCP server environment.
+
+Example KiCad setup:
+
+```env
+KICAD_MCP_SERVER_PATH=/Users/you/MCP/KiCAD-MCP-Server
+KICAD_MCP_COMMAND=node
+KICAD_MCP_TOOL_PREFIX=kicad_
+KICAD_AUTO_LAUNCH=false
+KICAD_PYTHONPATH=/Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/lib/python3.9/site-packages
+```
 
 To add a new MCP tool in an existing domain:
 

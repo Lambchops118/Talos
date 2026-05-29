@@ -4,7 +4,6 @@ from   pyowm import OWM
 from   datetime import datetime
 from   zoneinfo import ZoneInfo
 import paho.mqtt.client as mqtt
-from   pycoingecko import CoinGeckoAPI
 from   messages import Message, VoicePayload
 from   apscheduler.triggers.cron import CronTrigger
 from   apscheduler.schedulers.background import BackgroundScheduler
@@ -12,9 +11,6 @@ from   apscheduler.schedulers.background import BackgroundScheduler
 TZ       = ZoneInfo("America/New_York")  # pick your local tz
 BROKER   = "192.168.1.160"
 PORT     = 1883
-cg       = CoinGeckoAPI()
-coins    = ["bitcoin", "ethereum", "solana"]
-currency = "usd"
 city     = "Ellicott City,MD,US"
 open_weather_api_key = os.getenv("OPEN_WEATHER_API_KEY")
 
@@ -57,7 +53,6 @@ def dim_display(): #This will require a script on the PI to listen on this MQTT 
 def update_infopanel_information(gui_queue, central_queue=None):
     # fetch data here
     # This will NOT BLOCK infopanel GUI or voice commands because its in a separate thread
-    price_data  = cg.get_price(ids=coins, vs_currencies=currency)
     owm         = OWM(open_weather_api_key)
     mgr         = owm.weather_manager()
     observation = mgr.weather_at_place(city)
@@ -68,9 +63,10 @@ def update_infopanel_information(gui_queue, central_queue=None):
 
     push_status(
         central_queue,
-        btc_price = price_data["bitcoin"][currency],
-        eth_price = price_data["ethereum"][currency],
-        sol_price = price_data["solana"][currency],
+        # CoinGecko fetch disabled to avoid recurring SSL errors in the scheduler.
+        btc_price = "N/A",
+        eth_price = "N/A",
+        sol_price = "N/A",
 
         temp      = round(temp_data["temp"]),
         feelslike = round(temp_data["feels_like"]),

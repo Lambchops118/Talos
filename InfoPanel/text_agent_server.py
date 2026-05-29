@@ -29,6 +29,7 @@ class TextServerConfig:
     port: int
     api_token: str
     request_timeout: float
+    terminal_request_timeout: float
     allowed_networks: tuple[Any, ...]
 
     @classmethod
@@ -38,6 +39,7 @@ class TextServerConfig:
         port = int(os.getenv("TEXT_AGENT_PORT", "8420"))
         api_token = os.getenv("TEXT_AGENT_API_TOKEN", "").strip()
         request_timeout = float(os.getenv("TEXT_AGENT_TIMEOUT", "90"))
+        terminal_request_timeout = float(os.getenv("TEXT_AGENT_TERMINAL_TIMEOUT", "0"))
         raw_networks = os.getenv(
             "TEXT_AGENT_ALLOWED_NETWORKS",
             ",".join(DEFAULT_ALLOWED_NETWORKS),
@@ -53,6 +55,7 @@ class TextServerConfig:
             port=port,
             api_token=api_token,
             request_timeout=request_timeout,
+            terminal_request_timeout=terminal_request_timeout,
             allowed_networks=allowed_networks,
         )
 
@@ -176,8 +179,16 @@ class TextAgentRequestHandler(BaseHTTPRequestHandler):
             )
         )
 
+        wait_timeout: float | None = self.server.config.request_timeout
+        if source == "terminal":
+            terminal_timeout = self.server.config.terminal_request_timeout
+            wait_timeout = None if terminal_timeout <= 0 else terminal_timeout
+
         try:
-            result = reply_queue.get(timeout=self.server.config.request_timeout)
+            if wait_timeout is None:
+                result = reply_queue.get()
+            else:
+                result = reply_queue.get(timeout=wait_timeout)
         except queue.Empty:
             self._write_json(
                 HTTPStatus.GATEWAY_TIMEOUT,
@@ -209,7 +220,10 @@ class TextAgentRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(encoded)))
         self.end_headers()
-        self.wfile.write(encoded)
+        try:
+            self.wfile.write(encoded)
+        except (BrokenPipeError, ConnectionResetError):
+            print("[text-agent] client disconnected before response could be delivered")
 
     def _write_html(self, status: HTTPStatus, html: str) -> None:
         encoded = html.encode("utf-8")

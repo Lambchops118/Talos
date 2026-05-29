@@ -12,6 +12,14 @@ DEFAULT_TOKEN = os.getenv("TALOS_TEXT_AGENT_TOKEN", os.getenv("TEXT_AGENT_API_TO
 DEFAULT_TIMEOUT = float(os.getenv("TALOS_TEXT_AGENT_CLIENT_TIMEOUT", "30"))
 
 
+def _normalize_timeout(timeout: float | None) -> float | None:
+    if timeout is None:
+        return None
+    if timeout <= 0:
+        return None
+    return timeout
+
+
 def build_url(base_url: str, path: str) -> str:
     return urllib.parse.urljoin(base_url.rstrip("/") + "/", path.lstrip("/"))
 
@@ -21,7 +29,7 @@ def request_json(
     path: str,
     payload: dict,
     token: str = DEFAULT_TOKEN,
-    timeout: float = DEFAULT_TIMEOUT,
+    timeout: float | None = DEFAULT_TIMEOUT,
 ) -> dict:
     data = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
@@ -33,8 +41,13 @@ def request_json(
     if token:
         request.add_header("Authorization", f"Bearer {token}")
 
+    resolved_timeout = _normalize_timeout(timeout)
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        if resolved_timeout is None:
+            response_context = urllib.request.urlopen(request)
+        else:
+            response_context = urllib.request.urlopen(request, timeout=resolved_timeout)
+        with response_context as response:
             raw = response.read().decode("utf-8")
             body = json.loads(raw) if raw else {}
             if not isinstance(body, dict):
@@ -55,7 +68,7 @@ def send_message(
     source: str,
     base_url: str = DEFAULT_URL,
     token: str = DEFAULT_TOKEN,
-    timeout: float = DEFAULT_TIMEOUT,
+    timeout: float | None = DEFAULT_TIMEOUT,
 ) -> str:
     body = request_json(
         base_url,
@@ -78,7 +91,7 @@ def reset_session(
     *,
     base_url: str = DEFAULT_URL,
     token: str = DEFAULT_TOKEN,
-    timeout: float = DEFAULT_TIMEOUT,
+    timeout: float | None = DEFAULT_TIMEOUT,
 ) -> None:
     body = request_json(
         base_url,
@@ -94,11 +107,16 @@ def reset_session(
 def check_health(
     *,
     base_url: str = DEFAULT_URL,
-    timeout: float = DEFAULT_TIMEOUT,
+    timeout: float | None = DEFAULT_TIMEOUT,
 ) -> dict:
     request = urllib.request.Request(build_url(base_url, "/health"), method="GET")
+    resolved_timeout = _normalize_timeout(timeout)
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        if resolved_timeout is None:
+            response_context = urllib.request.urlopen(request)
+        else:
+            response_context = urllib.request.urlopen(request, timeout=resolved_timeout)
+        with response_context as response:
             raw = response.read().decode("utf-8")
             body = json.loads(raw) if raw else {}
             if not isinstance(body, dict):

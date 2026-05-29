@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import os
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -44,9 +46,160 @@ Always respond as if you are a hyper-competent digital butler/engineer assisting
 """
 
 ai_model = os.getenv("OPENAI_VOICE_MODEL", "gpt-4o-mini")
+MAX_TOOL_CALL_ROUNDS = max(1, int(os.getenv("TALOS_MAX_TOOL_CALL_ROUNDS", "8")))
+OPENAI_SERVER_ERROR_RETRIES = max(0, int(os.getenv("TALOS_OPENAI_SERVER_ERROR_RETRIES", "2")))
+OPENAI_SERVER_ERROR_RETRY_DELAY = max(
+    0.0, float(os.getenv("TALOS_OPENAI_SERVER_ERROR_RETRY_DELAY", "1.5"))
+)
+KICAD_TOOL_PREFIX = os.getenv("KICAD_MCP_TOOL_PREFIX", "kicad_").strip() or "kicad_"
 
 _conversation_lock = threading.Lock()
 _last_response_ids: dict[str, str] = {}
+
+KICAD_PREFERRED_TOOL_SUFFIXES = {
+    "list_tool_categories",
+    "get_category_tools",
+    "search_tools",
+    "execute_tool",
+    "create_project",
+    "open_project",
+    "save_project",
+    "snapshot_project",
+    "get_project_info",
+    "set_board_size",
+    "add_board_outline",
+    "get_board_info",
+    "check_kicad_ui",
+    "launch_kicad_ui",
+    "get_backend_state",
+    "add_schematic_component",
+    "list_schematic_components",
+    "annotate_schematic",
+    "connect_passthrough",
+    "connect_to_net",
+    "add_schematic_net_label",
+    "sync_schematic_to_board",
+    "place_component",
+    "move_component",
+    "add_net",
+    "route_trace",
+}
+
+
+def _resource_tool_definitions() -> list[dict[str, Any]]:
+    return [
+        {
+            "type": "function",
+            "name": "list_mcp_resources",
+            "description": "List read-only MCP resources exposed by connected servers.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "refresh": {
+                        "type": "boolean",
+                        "description": "Refresh the cached MCP resource list before returning it.",
+                    }
+                },
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "list_mcp_resource_templates",
+            "description": "List MCP resource templates exposed by connected servers.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "refresh": {
+                        "type": "boolean",
+                        "description": "Refresh the cached MCP resource template list before returning it.",
+                    }
+                },
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "read_mcp_resource",
+            "description": "Read a specific MCP resource URI. Use the server field when more than one server exposes the same URI.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "uri": {
+                        "type": "string",
+                        "description": "The MCP resource URI to read.",
+                    },
+                    "server": {
+                        "type": "string",
+                        "description": "Optional server name for disambiguation when duplicate URIs exist.",
+                    },
+                },
+                "required": ["uri"],
+                "additionalProperties": False,
+            },
+        },
+    ]
+
+
+def _is_server_error(exc: Exception) -> bool:
+    lowered = str(exc).lower()
+    return "server_error" in lowered or "error code: 500" in lowered or "http 500" in lowered
+
+
+def _responses_create_with_retry(**kwargs):
+    attempt = 0
+    while True:
+        try:
+            return client.responses.create(**kwargs)
+        except Exception as exc:
+            if attempt >= OPENAI_SERVER_ERROR_RETRIES or not _is_server_error(exc):
+                raise
+            attempt += 1
+            print(
+                f"OpenAI server error on attempt {attempt}; retrying in "
+                f"{OPENAI_SERVER_ERROR_RETRY_DELAY:.1f}s..."
+            )
+            time.sleep(OPENAI_SERVER_ERROR_RETRY_DELAY)
+
+
+def _reduce_tool_surface(tool_defs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    reduced: list[dict[str, Any]] = []
+    kept_kicad = 0
+    skipped_kicad = 0
+
+    for tool in tool_defs:
+        name = str(tool.get("name") or "")
+        if not name.startswith(KICAD_TOOL_PREFIX):
+            reduced.append(tool)
+            continue
+
+        suffix = name[len(KICAD_TOOL_PREFIX) :]
+        if suffix in KICAD_PREFERRED_TOOL_SUFFIXES:
+            reduced.append(tool)
+            kept_kicad += 1
+        else:
+            skipped_kicad += 1
+
+    if skipped_kicad:
+        print(
+            f"Reduced KiCad tool surface: kept {kept_kicad}, skipped {skipped_kicad} "
+            f"for model context."
+        )
+    return reduced
+
+
+def _build_tool_definitions(mcp_client: Any) -> list[dict[str, Any]]:
+    tool_defs = _resource_tool_definitions() + mcp_client.openai_tool_definitions()
+    reduce_kicad = os.getenv("TALOS_REDUCE_KICAD_TOOL_SURFACE", "1").strip().lower()
+    if reduce_kicad not in {"0", "false", "no", "off"}:
+        tool_defs = _reduce_tool_surface(tool_defs)
+
+    try:
+        tool_bytes = len(json.dumps(tool_defs).encode("utf-8"))
+    except Exception:
+        tool_bytes = 0
+    print(f"Tool definitions prepared: {len(tool_defs)} tools, {tool_bytes} bytes")
+    return tool_defs
 
 
 def _format_context(snapshot: str) -> str | None:
@@ -56,6 +209,69 @@ def _format_context(snapshot: str) -> str | None:
     if len(snapshot) > 500:
         snapshot = snapshot[:500].rsplit(" ", 1)[0] + "..."
     return f"Context (read-only): {snapshot}"
+
+
+def _parse_function_arguments(arguments: Any) -> dict[str, Any]:
+    if arguments in (None, ""):
+        return {}
+    if isinstance(arguments, dict):
+        return arguments
+    if isinstance(arguments, str):
+        parsed = json.loads(arguments)
+        if not isinstance(parsed, dict):
+            raise ValueError("Tool arguments must decode to a JSON object.")
+        return parsed
+    raise TypeError("Tool arguments must be a dict, JSON string, or None.")
+
+
+def _invoke_host_tool(mcp_client: Any, name: str, arguments: Any) -> str:
+    parsed_arguments = _parse_function_arguments(arguments)
+    if name == "list_mcp_resources":
+        return json.dumps({"resources": mcp_client.list_resources(refresh=bool(parsed_arguments.get("refresh")))})
+    if name == "list_mcp_resource_templates":
+        return json.dumps(
+            {
+                "resourceTemplates": mcp_client.list_resource_templates(
+                    refresh=bool(parsed_arguments.get("refresh"))
+                )
+            }
+        )
+    if name == "read_mcp_resource":
+        uri = str(parsed_arguments.get("uri") or "").strip()
+        if not uri:
+            raise ValueError("read_mcp_resource requires a non-empty 'uri'.")
+        server = parsed_arguments.get("server")
+        server_name = str(server).strip() if server not in (None, "") else None
+        return mcp_client.read_resource(uri, server=server_name)
+    raise KeyError(name)
+
+
+def _collect_tool_outputs(response: Any, mcp_client: Any) -> list[dict[str, Any]]:
+    tool_outputs = []
+    for item in response.output:
+        if item.type != "function_call":
+            continue
+
+        print(f"FUNCTION CALL DETECTED: {item.name} with args {item.arguments}")
+        try:
+            if item.name in {"list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"}:
+                result = _invoke_host_tool(mcp_client, item.name, item.arguments)
+            else:
+                result = mcp_client.call_tool(item.name, item.arguments)
+        except KeyError:
+            result = f"Unknown function: {item.name}"
+        except Exception as exc:
+            result = f"Error calling {item.name}: {exc}"
+
+        tool_outputs.append(
+            {
+                "type": "function_call_output",
+                "call_id": item.call_id,
+                "output": str(result),
+            }
+        )
+        print(f"Function '{item.name}' executed with result: {result}")
+    return tool_outputs
 
 
 def run_command(
@@ -69,7 +285,7 @@ def run_command(
         benchmark.set_command(command)
 
     mcp_client = get_local_mcp_client()
-    tool_defs = mcp_client.openai_tool_definitions()
+    tool_defs = _build_tool_definitions(mcp_client)
 
     input_items: list[dict[str, Any]] = []
     context_message = _format_context(state_snapshot)
@@ -93,35 +309,27 @@ def run_command(
 
             if benchmark:
                 benchmark.mark_stage("llm_send")
-            response = client.responses.create(**request_kwargs)
+            response = _responses_create_with_retry(**request_kwargs)
             if benchmark:
                 benchmark.mark_stage("llm_first_done")
 
-            tool_outputs = []
-            for item in response.output:
-                if item.type != "function_call":
-                    continue
-                print(f"FUNCTION CALL DETECTED: {item.name} with args {item.arguments}")
-                try:
-                    result = mcp_client.call_tool(item.name, item.arguments)
-                except KeyError:
-                    result = f"Unknown function: {item.name}"
-                except Exception as exc:
-                    result = f"Error calling {item.name}: {exc}"
+            response_text = ""
+            rounds = 0
+            while True:
+                tool_outputs = _collect_tool_outputs(response, mcp_client)
+                if not tool_outputs:
+                    response_text = (response.output_text or "").strip()
+                    _last_response_ids[session_id] = response.id
+                    break
 
-                tool_outputs.append(
-                    {
-                        "type": "function_call_output",
-                        "call_id": item.call_id,
-                        "output": str(result),
-                    }
-                )
-                print(f"Function '{item.name}' executed with result: {result}")
+                if rounds >= MAX_TOOL_CALL_ROUNDS:
+                    response_text = "I reached the tool-call limit before finishing that request."
+                    _last_response_ids[session_id] = response.id
+                    break
 
-            if tool_outputs:
                 if benchmark:
                     benchmark.mark_stage("llm_followup_send")
-                followup = client.responses.create(
+                response = _responses_create_with_retry(
                     model=ai_model,
                     instructions=indoctrination,
                     tools=tool_defs,
@@ -130,15 +338,10 @@ def run_command(
                     temperature=0.5,
                     max_output_tokens=150,
                 )
-                if benchmark:
-                    benchmark.mark_stage("llm_done")
-                response_text = (followup.output_text or "").strip()
-                _last_response_ids[session_id] = followup.id
-            else:
-                if benchmark:
-                    benchmark.mark_stage("llm_done")
-                response_text = (response.output_text or "").strip()
-                _last_response_ids[session_id] = response.id
+                rounds += 1
+
+            if benchmark:
+                benchmark.mark_stage("llm_done")
     except Exception as exc:
         if benchmark:
             benchmark.add_error(f"Agent runtime error: {exc}")

@@ -10,9 +10,16 @@ DEFAULT_URL = os.getenv("TALOS_TEXT_AGENT_URL", "http://127.0.0.1:8420")
 DEFAULT_TOKEN = os.getenv("TALOS_TEXT_AGENT_TOKEN", os.getenv("TEXT_AGENT_API_TOKEN", ""))
 DEFAULT_SESSION_ID = os.getenv("TALOS_TEXT_AGENT_SESSION", "main-pc")
 DEFAULT_TIMEOUT = float(os.getenv("TALOS_TEXT_AGENT_CLIENT_TIMEOUT", "30"))
+DEFAULT_MESSAGE_TIMEOUT = float(os.getenv("TALOS_TEXT_AGENT_TERMINAL_CLIENT_TIMEOUT", "0"))
 
 
-def run_repl(base_url: str, token: str, session_id: str, timeout: float) -> int:
+def run_repl(
+    base_url: str,
+    token: str,
+    session_id: str,
+    timeout: float,
+    message_timeout: float,
+) -> int:
     print(f"Connected target: {base_url}")
     print(f"Session ID: {session_id}")
     print("Commands: /reset, /health, /exit")
@@ -52,7 +59,7 @@ def run_repl(base_url: str, token: str, session_id: str, timeout: float) -> int:
             source="terminal",
             base_url=base_url,
             token=token,
-            timeout=timeout,
+            timeout=message_timeout,
         )
         print(response)
 
@@ -64,6 +71,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--token", default=DEFAULT_TOKEN, help="Bearer token for the TALOS text agent.")
     parser.add_argument("--session-id", default=DEFAULT_SESSION_ID, help="Conversation session ID.")
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT, help="HTTP timeout in seconds.")
+    parser.add_argument(
+        "--message-timeout",
+        type=float,
+        default=DEFAULT_MESSAGE_TIMEOUT,
+        help="HTTP timeout in seconds for terminal chat messages. Use 0 to wait indefinitely.",
+    )
     parser.add_argument("--health", action="store_true", help="Check server health and exit.")
     parser.add_argument("--reset", action="store_true", help="Reset the session and exit.")
     return parser.parse_args(argv)
@@ -94,12 +107,18 @@ def main(argv: list[str] | None = None) -> int:
                 source="terminal",
                 base_url=args.url,
                 token=args.token,
-                timeout=args.timeout,
+                timeout=args.message_timeout,
             )
             print(response)
             return 0
 
-        return run_repl(args.url, args.token, args.session_id, args.timeout)
+        return run_repl(
+            args.url,
+            args.token,
+            args.session_id,
+            args.timeout,
+            args.message_timeout,
+        )
     except Exception as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1

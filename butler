@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ -x "$SCRIPT_DIR/.venv/bin/python" ]]; then
+  exec "$SCRIPT_DIR/.venv/bin/python" "$SCRIPT_DIR/InfoPanel/chat_client.py" "$@"
+fi
+
+if command -v python3 >/dev/null 2>&1; then
+  exec python3 "$SCRIPT_DIR/InfoPanel/chat_client.py" "$@"
+fi
+
+echo "Error: python3 was not found and $SCRIPT_DIR/.venv/bin/python does not exist." >&2
+exit 1
