@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import threading
 import time
 from pathlib import Path
@@ -53,6 +54,13 @@ MAX_TOOL_CALL_ROUNDS = max(1, int(os.getenv("TALOS_MAX_TOOL_CALL_ROUNDS", "8")))
 OPENAI_SERVER_ERROR_RETRIES = max(0, int(os.getenv("TALOS_OPENAI_SERVER_ERROR_RETRIES", "2")))
 OPENAI_SERVER_ERROR_RETRY_DELAY = max(
     0.0, float(os.getenv("TALOS_OPENAI_SERVER_ERROR_RETRY_DELAY", "1.5"))
+)
+OPENAI_SERVER_ERROR_RETRY_MAX_DELAY = max(
+    OPENAI_SERVER_ERROR_RETRY_DELAY,
+    float(os.getenv("TALOS_OPENAI_SERVER_ERROR_RETRY_MAX_DELAY", "20.0")),
+)
+OPENAI_SERVER_ERROR_RETRY_JITTER = max(
+    0.0, float(os.getenv("TALOS_OPENAI_SERVER_ERROR_RETRY_JITTER", "0.25"))
 )
 KICAD_TOOL_PREFIX = os.getenv("KICAD_MCP_TOOL_PREFIX", "kicad_").strip() or "kicad_"
 TOOL_OUTPUT_CHAR_LIMIT = max(256, int(os.getenv("TALOS_TOOL_OUTPUT_CHAR_LIMIT", "4000")))
@@ -213,11 +221,19 @@ def _responses_create_with_retry(**kwargs):
             if attempt >= OPENAI_SERVER_ERROR_RETRIES or not _is_server_error(exc):
                 raise
             attempt += 1
+            retry_delay = min(
+                OPENAI_SERVER_ERROR_RETRY_DELAY * (2 ** (attempt - 1)),
+                OPENAI_SERVER_ERROR_RETRY_MAX_DELAY,
+            )
+            if OPENAI_SERVER_ERROR_RETRY_JITTER > 0:
+                jitter_window = retry_delay * OPENAI_SERVER_ERROR_RETRY_JITTER
+                retry_delay += random.uniform(-jitter_window, jitter_window)
+                retry_delay = max(0.0, retry_delay)
             print(
                 f"OpenAI server error on attempt {attempt}; retrying in "
-                f"{OPENAI_SERVER_ERROR_RETRY_DELAY:.1f}s..."
+                f"{retry_delay:.1f}s..."
             )
-            time.sleep(OPENAI_SERVER_ERROR_RETRY_DELAY)
+            time.sleep(retry_delay)
 
 
 def _reduce_tool_surface(tool_defs: list[dict[str, Any]]) -> list[dict[str, Any]]:
