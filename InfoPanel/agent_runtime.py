@@ -42,6 +42,9 @@ You are Monkey Butler, an assistant styled after JARVIS from Iron Man.
 - you are a voice assistant. always answer as if you are talking, not outputting text.
 - you are an artificial intelligence construct. your tone should not be warm or friendly.
 - you are the personal AI assistant of one person. You do not have to be polite and can speak as if you know them, but you can call them sir when appropriate.
+- When using KiCad tools, verify the live backend state before board-editing work when that context is available.
+- If the user expects visible, real-time board updates, prefer checking KiCad UI / backend state and moving to IPC before describing placement as complete.
+- If components come from the schematic, make sure the schematic has been synced to the board before placement or routing.
 Always respond as if you are a hyper-competent digital butler/engineer assisting the user.
 """
 
@@ -93,6 +96,51 @@ KICAD_PREFERRED_TOOL_SUFFIXES = {
     "move_component",
     "add_net",
     "route_trace",
+}
+KICAD_BACKEND_STATE_TOOL = f"{KICAD_TOOL_PREFIX}get_backend_state"
+KICAD_UI_CHECK_TOOL = f"{KICAD_TOOL_PREFIX}check_kicad_ui"
+KICAD_UI_LAUNCH_TOOL = f"{KICAD_TOOL_PREFIX}launch_kicad_ui"
+KICAD_SYNC_TOOL = f"{KICAD_TOOL_PREFIX}sync_schematic_to_board"
+KICAD_RELEVANT_TERMS = {
+    "kicad",
+    "pcb",
+    "board",
+    "schematic",
+    "footprint",
+    "trace",
+    "routing",
+    "route",
+    "net",
+    "component",
+    "components",
+    "place",
+    "placement",
+    "populate",
+    "layout",
+}
+KICAD_BOARD_EDIT_TERMS = {
+    "board",
+    "footprint",
+    "trace",
+    "route",
+    "routing",
+    "net",
+    "place",
+    "placement",
+    "populate",
+    "layout",
+    "move",
+    "rotate",
+}
+KICAD_SCHEMATIC_TO_BOARD_TERMS = {
+    "schematic",
+    "sync",
+    "footprint",
+    "place",
+    "placement",
+    "populate",
+    "route",
+    "routing",
 }
 
 
@@ -219,6 +267,104 @@ def _format_context(snapshot: str) -> str | None:
     if len(snapshot) > 500:
         snapshot = snapshot[:500].rsplit(" ", 1)[0] + "..."
     return f"Context (read-only): {snapshot}"
+
+
+def _tokenize_lowered(text: str) -> set[str]:
+    normalized = []
+    for char in text.lower():
+        normalized.append(char if char.isalnum() else " ")
+    return {token for token in "".join(normalized).split() if token}
+
+
+def _is_kicad_request(command: str, tool_defs: list[dict[str, Any]]) -> bool:
+    lowered = command.lower()
+    if KICAD_TOOL_PREFIX in lowered or "kicad" in lowered:
+        return True
+    if not any(str(tool.get("name") or "").startswith(KICAD_TOOL_PREFIX) for tool in tool_defs):
+        return False
+    return bool(_tokenize_lowered(command) & KICAD_RELEVANT_TERMS)
+
+
+def _format_kicad_backend_context(raw_output: str, command: str) -> str | None:
+    stripped = raw_output.strip()
+    if not stripped:
+        return None
+
+    try:
+        payload = json.loads(stripped)
+    except Exception:
+        return f"KiCad backend preflight (fresh): {_truncate_text(' '.join(stripped.split()), 500)}"
+
+    if not isinstance(payload, dict):
+        return None
+
+    status = {
+        "backend": payload.get("backend"),
+        "realtime": payload.get("realtime_sync", payload.get("realtime")),
+        "ipc_connected": payload.get("ipc_connected", payload.get("ipcConnected")),
+        "loaded_project": payload.get("loadedProject"),
+        "loaded_board": payload.get("loadedBoard"),
+        "project_path": payload.get("projectPath"),
+        "board_path": payload.get("boardPath"),
+        "dirty": payload.get("dirty"),
+        "message": payload.get("message"),
+    }
+    compact_status = json.dumps(status, ensure_ascii=True)
+
+    notes: list[str] = []
+    tokens = _tokenize_lowered(command)
+
+    if status["backend"] == "swig":
+        notes.append(
+            "KiCad is currently in SWIG mode, so board changes are file-based and not guaranteed to appear live in the UI."
+        )
+    if status["ipc_connected"] is False:
+        notes.append(
+            "For real-time board placement, KiCad must be running with IPC enabled and a board open."
+        )
+    if tokens & KICAD_BOARD_EDIT_TERMS and status["loaded_board"] is False:
+        notes.append("No PCB board is currently loaded, so board-editing commands may fail or target only files on disk.")
+    if tokens & KICAD_SCHEMATIC_TO_BOARD_TERMS:
+        notes.append(
+            "If the task starts from schematic components, sync the schematic to the board before placement or routing."
+        )
+    if KICAD_UI_CHECK_TOOL and status["backend"] == "swig":
+        notes.append(
+            "If the user expects visual updates, prefer checking or launching KiCad UI before claiming the placement is visible."
+        )
+
+    if notes:
+        return f"KiCad backend preflight (fresh): {compact_status} Guidance: {' '.join(notes)}"
+    return f"KiCad backend preflight (fresh): {compact_status}"
+
+
+def _maybe_add_kicad_preflight(
+    input_items: list[dict[str, Any]],
+    mcp_client: Any,
+    tool_defs: list[dict[str, Any]],
+    command: str,
+) -> None:
+    if not _is_kicad_request(command, tool_defs):
+        return
+
+    tool_names = {str(tool.get("name") or "") for tool in tool_defs}
+    if KICAD_BACKEND_STATE_TOOL not in tool_names:
+        return
+
+    try:
+        raw_state = mcp_client.call_tool(KICAD_BACKEND_STATE_TOOL, {})
+    except Exception as exc:
+        input_items.append(
+            {
+                "role": "system",
+                "content": f"KiCad backend preflight failed: {_truncate_text(str(exc), 300)}",
+            }
+        )
+        return
+
+    preflight_context = _format_kicad_backend_context(raw_state, command)
+    if preflight_context:
+        input_items.append({"role": "system", "content": preflight_context})
 
 
 def _parse_function_arguments(arguments: Any) -> dict[str, Any]:
@@ -423,6 +569,7 @@ def run_command(
     context_message = _format_context(state_snapshot)
     if context_message:
         input_items.append({"role": "system", "content": context_message})
+    _maybe_add_kicad_preflight(input_items, mcp_client, tool_defs, command)
     input_items.append({"role": "user", "content": command})
 
     try:

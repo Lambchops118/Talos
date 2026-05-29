@@ -121,12 +121,11 @@ class TextAgentRequestHandler(BaseHTTPRequestHandler):
             provided = self.headers.get("X-API-Key", "").strip()
 
         if provided != api_token:
-            self.send_response(HTTPStatus.UNAUTHORIZED)
-            self.send_header("WWW-Authenticate", "Bearer")
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(
-                json.dumps({"ok": False, "error": "Unauthorized"}).encode("utf-8")
+            self._send_bytes(
+                HTTPStatus.UNAUTHORIZED,
+                json.dumps({"ok": False, "error": "Unauthorized"}).encode("utf-8"),
+                "application/json",
+                extra_headers={"WWW-Authenticate": "Bearer"},
             )
             return False
 
@@ -214,24 +213,34 @@ class TextAgentRequestHandler(BaseHTTPRequestHandler):
         agent_runtime.reset_session(session_id)
         self._write_json(HTTPStatus.OK, {"ok": True, "session_id": session_id})
 
-    def _write_json(self, status: HTTPStatus, payload: dict[str, Any]) -> None:
-        encoded = json.dumps(payload).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(encoded)))
-        self.end_headers()
+    def _send_bytes(
+        self,
+        status: HTTPStatus,
+        encoded: bytes,
+        content_type: str,
+        *,
+        extra_headers: dict[str, str] | None = None,
+    ) -> bool:
         try:
+            self.send_response(status)
+            self.send_header("Content-Type", f"{content_type}; charset=utf-8")
+            self.send_header("Content-Length", str(len(encoded)))
+            for key, value in (extra_headers or {}).items():
+                self.send_header(key, value)
+            self.end_headers()
             self.wfile.write(encoded)
+            return True
         except (BrokenPipeError, ConnectionResetError):
             print("[text-agent] client disconnected before response could be delivered")
+            return False
+
+    def _write_json(self, status: HTTPStatus, payload: dict[str, Any]) -> None:
+        encoded = json.dumps(payload).encode("utf-8")
+        self._send_bytes(status, encoded, "application/json")
 
     def _write_html(self, status: HTTPStatus, html: str) -> None:
         encoded = html.encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(encoded)))
-        self.end_headers()
-        self.wfile.write(encoded)
+        self._send_bytes(status, encoded, "text/html")
 
     @staticmethod
     def _chat_page() -> str:
