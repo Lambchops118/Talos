@@ -30,6 +30,7 @@ class FakeConnection:
         self._resources = Obj(resources=resources or [])
         self._templates = Obj(resourceTemplates=templates or [])
         self._read_results = read_results or {}
+        self.last_tool_call = None
 
     async def list_resources(self):
         return self._resources
@@ -44,7 +45,8 @@ class FakeConnection:
         return Obj(tools=[])
 
     async def call_tool(self, name: str, arguments):
-        raise NotImplementedError
+        self.last_tool_call = (name, arguments)
+        return Obj(content=[Obj(type="text", text="ok")], isError=False)
 
 
 class TestableLocalMcpClient(local_mcp_client.LocalMcpClient):
@@ -135,6 +137,39 @@ class LocalMcpClientResourceTests(unittest.TestCase):
         self.assertTrue(configs[1].args[0].endswith("dist/index.js"))
         self.assertEqual(configs[1].env["PYTHONPATH"], "/Applications/KiCad/site-packages")
         self.assertEqual(configs[1].tool_prefix, "kicad_")
+
+    def test_kicad_tool_call_normalizes_missing_root_paths(self) -> None:
+        configs = [local_mcp_client.McpServerConfig(name="kicad", transport="stdio", command="node")]
+        client = TestableLocalMcpClient(configs)
+        connection = FakeConnection()
+        client._connections = {"kicad": connection}
+        client._tool_routes = {"kicad_open_project": ("kicad", "open_project")}
+
+        result = client.call_tool(
+            "kicad_open_project",
+            {"filename": "Users/jacksal1/Desktop/KiCADProjects/demo.kicad_pro"},
+        )
+
+        self.assertEqual(result, "ok")
+        self.assertEqual(
+            connection.last_tool_call,
+            ("open_project", {"filename": "/Users/jacksal1/Desktop/KiCADProjects/demo.kicad_pro"}),
+        )
+
+    def test_non_kicad_tool_call_does_not_rewrite_path_arguments(self) -> None:
+        configs = [local_mcp_client.McpServerConfig(name="other", transport="stdio", command="node")]
+        client = TestableLocalMcpClient(configs)
+        connection = FakeConnection()
+        client._connections = {"other": connection}
+        client._tool_routes = {"open_project": ("other", "open_project")}
+
+        result = client.call_tool("open_project", {"filename": "Users/jacksal1/Desktop/demo.txt"})
+
+        self.assertEqual(result, "ok")
+        self.assertEqual(
+            connection.last_tool_call,
+            ("open_project", {"filename": "Users/jacksal1/Desktop/demo.txt"}),
+        )
 
 
 if __name__ == "__main__":
