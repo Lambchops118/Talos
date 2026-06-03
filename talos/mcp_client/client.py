@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import concurrent.futures
 import json
 import os
 import re
 import sys
 import threading
+import time
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -42,11 +44,39 @@ class McpServerConfig:
         return f"{self.tool_prefix}{raw_name}" if self.tool_prefix else raw_name
 
 
+@dataclass
+class McpServerStatus:
+    name: str
+    transport: str
+    status: str = "not_started"
+    healthy: bool = False
+    failure_count: int = 0
+    last_error: str | None = None
+    last_transition: float = field(default_factory=time.time)
+    next_retry_at: float | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "transport": self.transport,
+            "status": self.status,
+            "healthy": self.healthy,
+            "failure_count": self.failure_count,
+            "last_error": self.last_error,
+            "last_transition": self.last_transition,
+            "next_retry_at": self.next_retry_at,
+        }
+
+
 class _ServerConnection:
     def __init__(self, config: McpServerConfig) -> None:
         self.config = config
         self._exit_stack: AsyncExitStack | None = None
         self._session: Any = None
+
+    @property
+    def is_running(self) -> bool:
+        return self._session is not None
 
     async def start(self) -> None:
         if self._session is not None:
@@ -183,12 +213,48 @@ class _ServerConnection:
 
 
 class LocalMcpClient:
-    def __init__(self, configs: list[McpServerConfig]) -> None:
+    def __init__(
+        self,
+        configs: list[McpServerConfig],
+        *,
+        bridge_timeout_seconds: float | None = None,
+        reconnect_attempts: int | None = None,
+        reconnect_backoff_seconds: float | None = None,
+        failure_threshold: int | None = None,
+    ) -> None:
         if not configs:
             raise ValueError("At least one MCP server config is required.")
 
         self._configs = list(configs)
         self._connections = {config.name: _ServerConnection(config) for config in self._configs}
+        self._status = {
+            config.name: McpServerStatus(
+                name=config.name,
+                transport=config.normalized_transport(),
+            )
+            for config in self._configs
+        }
+        max_config_timeout = max(config.timeout_seconds for config in self._configs)
+        self._bridge_timeout_seconds = (
+            bridge_timeout_seconds
+            if bridge_timeout_seconds is not None
+            else float(os.getenv("TALOS_MCP_BRIDGE_TIMEOUT", str(max(max_config_timeout + 5.0, 30.0))))
+        )
+        self._reconnect_attempts = (
+            reconnect_attempts
+            if reconnect_attempts is not None
+            else max(0, int(os.getenv("TALOS_MCP_RECONNECT_ATTEMPTS", "1")))
+        )
+        self._reconnect_backoff_seconds = (
+            reconnect_backoff_seconds
+            if reconnect_backoff_seconds is not None
+            else max(0.0, float(os.getenv("TALOS_MCP_RECONNECT_BACKOFF", "1.0")))
+        )
+        self._failure_threshold = (
+            failure_threshold
+            if failure_threshold is not None
+            else max(1, int(os.getenv("TALOS_MCP_FAILURE_THRESHOLD", "3")))
+        )
 
         self._lock = threading.Lock()
         self._tool_cache: list[dict[str, Any]] | None = None
@@ -196,6 +262,7 @@ class LocalMcpClient:
         self._resource_cache: list[dict[str, Any]] | None = None
         self._resource_template_cache: list[dict[str, Any]] | None = None
         self._resource_routes: dict[str, list[str]] = {}
+        self._pending_starts: dict[str, asyncio.Task] = {}
 
         self._loop: asyncio.AbstractEventLoop | None = None
         self._loop_thread: threading.Thread | None = None
@@ -298,35 +365,76 @@ class LocalMcpClient:
         self.start()
         return self._run_coro(self._async_read_resource(uri, server))
 
-    async def _async_start(self) -> None:
-        started_connections: list[_ServerConnection] = []
-        try:
-            for config in self._configs:
-                connection = self._connections[config.name]
-                await connection.start()
-                started_connections.append(connection)
-        except Exception:
-            for connection in reversed(started_connections):
-                try:
-                    await connection.stop()
-                except Exception:
-                    pass
-            raise
+    def list_server_status(self, refresh: bool = False) -> list[dict[str, Any]]:
+        self.start()
+        return [self._status[config.name].as_dict() for config in self._configs]
+
+    def list_tool_inventory(self, refresh: bool = False) -> dict[str, Any]:
+        tools = self.list_tools(refresh=refresh)
+        return {
+            "tools": tools,
+            "servers": self.list_server_status(),
+        }
+
+    def retry_server(self, server: str | None = None) -> list[dict[str, Any]]:
+        self.start()
+        self._run_coro(self._async_retry_servers(server))
+        return self.list_server_status()
+
+    async def _async_start(self, *, force_retry: bool = False) -> None:
+        for config in self._configs:
+            await self._async_ensure_started(config.name, force_retry=force_retry)
+
+    async def _async_retry_servers(self, server: str | None = None) -> None:
+        requested = server.strip() if isinstance(server, str) else ""
+        if requested:
+            if requested not in self._connections:
+                raise KeyError(requested)
+            names = [requested]
+        else:
+            names = [
+                config.name
+                for config in self._configs
+                if not self._status[config.name].healthy
+            ]
+
+        for name in names:
+            await self._async_ensure_started(name, force_retry=True)
+        self._tool_cache = None
+        self._resource_cache = None
+        self._resource_template_cache = None
 
     async def _async_stop(self) -> None:
         for connection in reversed(list(self._connections.values())):
             try:
-                await connection.stop()
+                await asyncio.wait_for(
+                    connection.stop(),
+                    timeout=max(0.001, connection.config.timeout_seconds),
+                )
             except Exception:
                 pass
+        for config in self._configs:
+            self._mark_server_stopped(config.name)
 
-    async def _async_list_tools(self) -> list[dict[str, Any]]:
+    async def _async_list_tools(self, *, force_retry: bool = False) -> list[dict[str, Any]]:
         tools: list[dict[str, Any]] = []
         routes: dict[str, tuple[str, str]] = {}
 
         for config in self._configs:
             connection = self._connections[config.name]
-            result = await connection.list_tools()
+            if not await self._async_ensure_started(config.name, force_retry=force_retry):
+                continue
+
+            try:
+                result = await self._with_timeout(
+                    connection.list_tools(),
+                    timeout_seconds=config.timeout_seconds,
+                    operation=f"list tools from MCP server '{config.name}'",
+                )
+                self._mark_server_healthy(config.name)
+            except Exception as exc:
+                await self._mark_server_failed(config.name, exc)
+                continue
 
             for tool in getattr(result, "tools", []):
                 raw_name = getattr(tool, "name")
@@ -373,7 +481,7 @@ class LocalMcpClient:
         server_name, raw_name = route
         connection = self._connections[server_name]
         arguments = self._normalize_tool_arguments(name, server_name, arguments)
-        result = await connection.call_tool(raw_name, arguments)
+        result = await self._async_call_with_reconnect(connection, raw_name, arguments)
 
         is_error = bool(getattr(result, "isError", False))
         text = self._extract_text(result)
@@ -387,9 +495,17 @@ class LocalMcpClient:
 
         for config in self._configs:
             connection = self._connections[config.name]
+            if not await self._async_ensure_started(config.name):
+                continue
             try:
-                result = await connection.list_resources()
-            except Exception:
+                result = await self._with_timeout(
+                    connection.list_resources(),
+                    timeout_seconds=config.timeout_seconds,
+                    operation=f"list resources from MCP server '{config.name}'",
+                )
+                self._mark_server_healthy(config.name)
+            except Exception as exc:
+                await self._mark_server_failed(config.name, exc)
                 continue
 
             for resource in getattr(result, "resources", []):
@@ -418,9 +534,17 @@ class LocalMcpClient:
 
         for config in self._configs:
             connection = self._connections[config.name]
+            if not await self._async_ensure_started(config.name):
+                continue
             try:
-                result = await connection.list_resource_templates()
-            except Exception:
+                result = await self._with_timeout(
+                    connection.list_resource_templates(),
+                    timeout_seconds=config.timeout_seconds,
+                    operation=f"list resource templates from MCP server '{config.name}'",
+                )
+                self._mark_server_healthy(config.name)
+            except Exception as exc:
+                await self._mark_server_failed(config.name, exc)
                 continue
 
             for template in getattr(result, "resourceTemplates", []):
@@ -464,7 +588,19 @@ class LocalMcpClient:
         if connection is None:
             raise KeyError(resolved_server)
 
-        result = await connection.read_resource(uri)
+        if not await self._async_ensure_started(resolved_server):
+            raise RuntimeError(f"MCP server '{resolved_server}' is unavailable.")
+
+        try:
+            result = await self._with_timeout(
+                connection.read_resource(uri),
+                timeout_seconds=connection.config.timeout_seconds,
+                operation=f"read resource from MCP server '{resolved_server}'",
+            )
+            self._mark_server_healthy(resolved_server)
+        except Exception as exc:
+            await self._mark_server_failed(resolved_server, exc)
+            raise
         return json.dumps(
             {
                 "server": resolved_server,
@@ -472,6 +608,202 @@ class LocalMcpClient:
                 "contents": self._extract_resource_contents(result),
             }
         )
+
+    async def _async_ensure_started(self, server_name: str, *, force_retry: bool = False) -> bool:
+        connection = self._connections[server_name]
+        if self._connection_is_running(connection):
+            self._mark_server_healthy(server_name)
+            return True
+
+        pending = self._pending_starts.get(server_name)
+        if pending is not None:
+            if pending.done():
+                self._pending_starts.pop(server_name, None)
+                try:
+                    await pending
+                    self._mark_server_healthy(server_name)
+                    return True
+                except Exception as exc:
+                    await self._mark_server_failed(server_name, exc)
+                    return False
+            self._mark_server_transition(
+                server_name,
+                "reconnecting" if self._status[server_name].failure_count else "starting",
+                healthy=False,
+                error="MCP server startup is already in progress; not starting a duplicate process.",
+            )
+            return False
+
+        status = self._status[server_name]
+        if status.failure_count and not force_retry:
+            return False
+
+        self._mark_server_transition(
+            server_name,
+            "reconnecting" if status.failure_count else "starting",
+            healthy=False,
+        )
+        task = asyncio.create_task(connection.start())
+        self._pending_starts[server_name] = task
+        task.add_done_callback(
+            lambda completed, name=server_name: self._on_start_task_done(name, completed)
+        )
+        try:
+            done, _pending = await asyncio.wait(
+                {task},
+                timeout=max(0.001, connection.config.timeout_seconds),
+            )
+            if not done:
+                await self._mark_server_failed(
+                    server_name,
+                    TimeoutError(
+                        f"Timed out while trying to start MCP server '{server_name}' "
+                        f"after {connection.config.timeout_seconds:.1f}s. "
+                        "Startup is still quarantined in the background; use retry_mcp_server after it finishes or restart TALOS."
+                    ),
+                    cleanup=False,
+                )
+                return False
+            self._pending_starts.pop(server_name, None)
+            await task
+            self._mark_server_healthy(server_name)
+            return True
+        except Exception as exc:
+            await self._mark_server_failed(server_name, exc)
+            return False
+
+    def _on_start_task_done(self, server_name: str, task: asyncio.Task) -> None:
+        if self._pending_starts.get(server_name) is task:
+            self._pending_starts.pop(server_name, None)
+        try:
+            task.result()
+        except Exception as exc:
+            asyncio.create_task(self._mark_server_failed(server_name, exc))
+            return
+
+        self._mark_server_healthy(server_name)
+        self._tool_cache = None
+        self._resource_cache = None
+        self._resource_template_cache = None
+
+    async def _async_call_with_reconnect(
+        self,
+        connection: _ServerConnection,
+        raw_name: str,
+        arguments: dict[str, Any],
+    ) -> Any:
+        server_name = connection.config.name
+        attempts = self._reconnect_attempts + 1
+        last_exc: Exception | None = None
+
+        for attempt in range(attempts):
+            if not await self._async_ensure_started(server_name, force_retry=attempt > 0):
+                last_exc = RuntimeError(f"MCP server '{server_name}' is unavailable.")
+                break
+
+            try:
+                result = await self._with_timeout(
+                    connection.call_tool(raw_name, arguments),
+                    timeout_seconds=connection.config.timeout_seconds,
+                    operation=f"call MCP tool '{raw_name}' on server '{server_name}'",
+                )
+                self._mark_server_healthy(server_name)
+                return result
+            except Exception as exc:
+                last_exc = exc
+                await self._mark_server_failed(server_name, exc)
+                if attempt >= attempts - 1:
+                    break
+                if self._reconnect_backoff_seconds > 0:
+                    await asyncio.sleep(self._reconnect_backoff_seconds)
+
+        if last_exc is None:
+            last_exc = RuntimeError(f"MCP server '{server_name}' is unavailable.")
+        raise last_exc
+
+    async def _with_timeout(self, awaitable: Any, *, timeout_seconds: float, operation: str) -> Any:
+        try:
+            return await asyncio.wait_for(awaitable, timeout=max(0.001, timeout_seconds))
+        except asyncio.TimeoutError as exc:
+            raise TimeoutError(f"Timed out while trying to {operation} after {timeout_seconds:.1f}s.") from exc
+
+    def _connection_is_running(self, connection: Any) -> bool:
+        return bool(getattr(connection, "is_running", True))
+
+    def _mark_server_transition(
+        self,
+        server_name: str,
+        status: str,
+        *,
+        healthy: bool,
+        error: str | None = None,
+    ) -> None:
+        item = self._status[server_name]
+        item.status = status
+        item.healthy = healthy
+        item.last_error = error
+        item.last_transition = time.time()
+
+    def _mark_server_healthy(self, server_name: str) -> None:
+        item = self._status[server_name]
+        item.status = "healthy"
+        item.healthy = True
+        item.failure_count = 0
+        item.last_error = None
+        item.next_retry_at = None
+        item.last_transition = time.time()
+
+    def _mark_server_stopped(self, server_name: str) -> None:
+        item = self._status[server_name]
+        item.status = "stopped"
+        item.healthy = False
+        item.next_retry_at = None
+        item.last_transition = time.time()
+
+    async def _mark_server_failed(
+        self,
+        server_name: str,
+        exc: Exception,
+        *,
+        cleanup: bool = True,
+    ) -> None:
+        connection = self._connections[server_name]
+        if cleanup:
+            try:
+                await asyncio.wait_for(
+                    connection.stop(),
+                    timeout=max(0.001, connection.config.timeout_seconds),
+                )
+            except Exception:
+                pass
+
+        item = self._status[server_name]
+        item.failure_count += 1
+        item.healthy = False
+        item.last_error = str(exc)
+        item.status = "failed" if item.failure_count >= self._failure_threshold else "degraded"
+        backoff = self._reconnect_backoff_seconds * max(1, item.failure_count)
+        item.next_retry_at = time.time() + backoff if backoff > 0 else None
+        item.last_transition = time.time()
+        self._drop_server_routes(server_name)
+        print(f"MCP server '{server_name}' marked {item.status}: {item.last_error}")
+
+    def _drop_server_routes(self, server_name: str) -> None:
+        self._tool_cache = None
+        self._tool_routes = {
+            exposed_name: route
+            for exposed_name, route in self._tool_routes.items()
+            if route[0] != server_name
+        }
+        self._resource_cache = None
+        self._resource_template_cache = None
+        self._resource_routes = {
+            uri: [route for route in routes if route != server_name]
+            for uri, routes in self._resource_routes.items()
+        }
+        self._resource_routes = {
+            uri: routes for uri, routes in self._resource_routes.items() if routes
+        }
 
     @staticmethod
     def _asdict(item: Any) -> dict[str, Any]:
@@ -619,7 +951,14 @@ class LocalMcpClient:
         if self._loop is None:
             raise RuntimeError("Local MCP loop is not running.")
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
-        return future.result()
+        try:
+            return future.result(timeout=max(0.001, self._bridge_timeout_seconds))
+        except concurrent.futures.TimeoutError as exc:
+            future.cancel()
+            raise TimeoutError(
+                "Timed out waiting for the local MCP event-loop bridge "
+                f"after {self._bridge_timeout_seconds:.1f}s."
+            ) from exc
 
     def _shutdown_loop(self) -> None:
         if self._loop is not None:

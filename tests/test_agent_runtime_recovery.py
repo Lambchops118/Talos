@@ -14,6 +14,23 @@ if str(REPO_ROOT) not in sys.path:
 from talos.agent import runtime as agent_runtime
 
 
+class FakeMcpClient:
+    def __init__(self) -> None:
+        self.inventory_refresh = None
+        self.retry_server_name = None
+
+    def list_tool_inventory(self, *, refresh: bool = False):
+        self.inventory_refresh = refresh
+        return {
+            "tools": [{"name": "local_ping"}],
+            "servers": [{"name": "talos-local", "status": "healthy"}],
+        }
+
+    def retry_server(self, server=None):
+        self.retry_server_name = server
+        return [{"name": server or "all", "status": "starting"}]
+
+
 class AgentRuntimeRecoveryTests(unittest.TestCase):
     def test_reduce_tool_surface_keeps_direct_symbol_search_tools(self) -> None:
         tool_defs = [
@@ -94,6 +111,31 @@ class AgentRuntimeRecoveryTests(unittest.TestCase):
         self.assertIn("Recovery attempt 1", combined)
         self.assertIn("kicad_create_project completed", combined)
         self.assertEqual(items[-1]["content"], "make a simple LED circuit")
+
+    def test_host_tool_lists_mcp_tools_separately_from_resources(self) -> None:
+        mcp_client = FakeMcpClient()
+
+        result = agent_runtime._invoke_host_tool(
+            mcp_client,
+            "list_mcp_tools",
+            '{"refresh": true}',
+        )
+
+        self.assertTrue(mcp_client.inventory_refresh)
+        self.assertIn("local_ping", result)
+        self.assertIn("talos-local", result)
+
+    def test_host_tool_retries_mcp_server_explicitly(self) -> None:
+        mcp_client = FakeMcpClient()
+
+        result = agent_runtime._invoke_host_tool(
+            mcp_client,
+            "retry_mcp_server",
+            '{"server": "kicad"}',
+        )
+
+        self.assertEqual(mcp_client.retry_server_name, "kicad")
+        self.assertIn("starting", result)
 
 
 if __name__ == "__main__":

@@ -22,11 +22,58 @@ class Obj:
 
 
 class FakeConnection:
-    def __init__(self, *, resources=None, templates=None, read_results=None):
+    def __init__(
+        self,
+        *,
+        name: str = "fake",
+        timeout_seconds: float = 30.0,
+        tools=None,
+        resources=None,
+        templates=None,
+        read_results=None,
+        start_error: Exception | None = None,
+        start_delay: float = 0.0,
+        list_tools_error: Exception | None = None,
+        call_results=None,
+        call_delay: float = 0.0,
+    ):
+        self.config = local_mcp_client.McpServerConfig(
+            name=name,
+            transport="stdio",
+            command="node",
+            timeout_seconds=timeout_seconds,
+        )
+        self.is_running = True
+        self.start_count = 0
+        self.stop_count = 0
+        self._tools = Obj(tools=tools or [])
         self._resources = Obj(resources=resources or [])
         self._templates = Obj(resourceTemplates=templates or [])
         self._read_results = read_results or {}
+        self._start_error = start_error
+        self._start_delay = start_delay
+        self._list_tools_error = list_tools_error
+        self._call_results = list(call_results or [])
+        self._call_delay = call_delay
+        self.start_cancelled = False
         self.last_tool_call = None
+
+    async def start(self):
+        self.start_count += 1
+        try:
+            if self._start_delay:
+                await asyncio.sleep(self._start_delay)
+            if self._start_error is not None:
+                self.is_running = False
+                raise self._start_error
+            self.is_running = True
+        except asyncio.CancelledError:
+            self.start_cancelled = True
+            raise
+
+    async def stop(self):
+        self.stop_count += 1
+        self.is_running = False
 
     async def list_resources(self):
         return self._resources
@@ -38,10 +85,19 @@ class FakeConnection:
         return self._read_results[uri]
 
     async def list_tools(self):
-        return Obj(tools=[])
+        if self._list_tools_error is not None:
+            raise self._list_tools_error
+        return self._tools
 
     async def call_tool(self, name: str, arguments):
+        if self._call_delay:
+            await asyncio.sleep(self._call_delay)
         self.last_tool_call = (name, arguments)
+        if self._call_results:
+            result = self._call_results.pop(0)
+            if isinstance(result, Exception):
+                raise result
+            return result
         return Obj(content=[Obj(type="text", text="ok")], isError=False)
 
 
@@ -54,6 +110,184 @@ class TestableLocalMcpClient(local_mcp_client.LocalMcpClient):
 
 
 class LocalMcpClientResourceTests(unittest.TestCase):
+    def test_start_keeps_healthy_servers_when_one_fails(self) -> None:
+        configs = [
+            local_mcp_client.McpServerConfig(name="healthy", transport="stdio", command="node"),
+            local_mcp_client.McpServerConfig(name="broken", transport="stdio", command="node"),
+        ]
+        healthy = FakeConnection(name="healthy")
+        broken = FakeConnection(
+            name="broken",
+            start_error=RuntimeError("cannot connect"),
+        )
+        healthy.is_running = False
+        broken.is_running = False
+
+        client = TestableLocalMcpClient(configs, reconnect_backoff_seconds=0)
+        client._connections = {"healthy": healthy, "broken": broken}
+
+        asyncio.run(client._async_start(force_retry=True))
+
+        statuses = {item["name"]: item for item in client.list_server_status()}
+        self.assertTrue(healthy.is_running)
+        self.assertEqual(statuses["healthy"]["status"], "healthy")
+        self.assertEqual(statuses["broken"]["status"], "degraded")
+        self.assertIn("cannot connect", statuses["broken"]["last_error"])
+
+    def test_list_tools_skips_failed_server_and_preserves_healthy_tools(self) -> None:
+        configs = [
+            local_mcp_client.McpServerConfig(name="healthy", transport="stdio", command="node"),
+            local_mcp_client.McpServerConfig(name="broken", transport="stdio", command="node"),
+        ]
+        client = TestableLocalMcpClient(configs, reconnect_backoff_seconds=0)
+        client._connections = {
+            "healthy": FakeConnection(
+                name="healthy",
+                tools=[Obj(name="ping", description="Ping", inputSchema={"type": "object"})],
+            ),
+            "broken": FakeConnection(
+                name="broken",
+                list_tools_error=RuntimeError("tools/list failed"),
+            ),
+        }
+
+        tools = client.list_tools()
+
+        self.assertEqual([tool["name"] for tool in tools], ["ping"])
+        statuses = {item["name"]: item for item in client.list_server_status()}
+        self.assertEqual(statuses["healthy"]["status"], "healthy")
+        self.assertEqual(statuses["broken"]["status"], "degraded")
+        self.assertIn("tools/list failed", statuses["broken"]["last_error"])
+
+    def test_duplicate_tool_names_still_raise_clear_protocol_error(self) -> None:
+        configs = [
+            local_mcp_client.McpServerConfig(name="first", transport="stdio", command="node"),
+            local_mcp_client.McpServerConfig(name="second", transport="stdio", command="node"),
+        ]
+        client = TestableLocalMcpClient(configs)
+        client._connections = {
+            "first": FakeConnection(name="first", tools=[Obj(name="same", description="")]),
+            "second": FakeConnection(name="second", tools=[Obj(name="same", description="")]),
+        }
+
+        with self.assertRaisesRegex(local_mcp_client.McpProtocolError, "Duplicate MCP tool name"):
+            client.list_tools()
+
+    def test_hung_tool_call_fails_with_configured_timeout(self) -> None:
+        configs = [
+            local_mcp_client.McpServerConfig(
+                name="slow",
+                transport="stdio",
+                command="node",
+                timeout_seconds=0.01,
+            )
+        ]
+        client = TestableLocalMcpClient(configs, reconnect_attempts=0, reconnect_backoff_seconds=0)
+        connection = FakeConnection(name="slow", timeout_seconds=0.01, call_delay=0.05)
+        client._connections = {"slow": connection}
+        client._tool_routes = {"slow_tool": ("slow", "slow_tool")}
+
+        with self.assertRaisesRegex(TimeoutError, "Timed out"):
+            client.call_tool("slow_tool", {})
+
+        status = client.list_server_status()[0]
+        self.assertEqual(status["status"], "degraded")
+
+    def test_tool_call_reconnects_once_after_session_failure(self) -> None:
+        configs = [local_mcp_client.McpServerConfig(name="flaky", transport="stdio", command="node")]
+        recovered_result = Obj(content=[Obj(type="text", text="recovered")], isError=False)
+        connection = FakeConnection(
+            name="flaky",
+            call_results=[RuntimeError("session died"), recovered_result],
+        )
+        client = TestableLocalMcpClient(configs, reconnect_attempts=1, reconnect_backoff_seconds=0)
+        client._connections = {"flaky": connection}
+        client._tool_routes = {"flaky_tool": ("flaky", "flaky_tool")}
+
+        result = client.call_tool("flaky_tool", {})
+
+        self.assertEqual(result, "recovered")
+        self.assertGreaterEqual(connection.start_count, 1)
+        status = client.list_server_status()[0]
+        self.assertEqual(status["status"], "healthy")
+
+    def test_start_timeout_quarantines_without_cancelling_start_task(self) -> None:
+        async def run_case() -> tuple[bool, list[dict[str, object]], list[dict[str, object]]]:
+            configs = [
+                local_mcp_client.McpServerConfig(
+                    name="slow-start",
+                    transport="stdio",
+                    command="node",
+                    timeout_seconds=0.01,
+                )
+            ]
+            client = TestableLocalMcpClient(configs, reconnect_backoff_seconds=0)
+            connection = FakeConnection(
+                name="slow-start",
+                timeout_seconds=0.01,
+                start_delay=0.05,
+            )
+            connection.is_running = False
+            client._connections = {"slow-start": connection}
+
+            started = await client._async_ensure_started("slow-start")
+            self.assertFalse(started)
+            timed_out_status = client.list_server_status()
+            await asyncio.sleep(0.06)
+            completed_status = client.list_server_status()
+            return connection.start_cancelled, timed_out_status, completed_status
+
+        start_cancelled, timed_out_status, completed_status = asyncio.run(run_case())
+
+        self.assertFalse(start_cancelled)
+        self.assertEqual(timed_out_status[0]["status"], "degraded")
+        self.assertIn("quarantined", str(timed_out_status[0]["last_error"]))
+        self.assertEqual(completed_status[0]["status"], "healthy")
+
+    def test_status_and_tool_refresh_do_not_retry_degraded_server(self) -> None:
+        configs = [local_mcp_client.McpServerConfig(name="broken", transport="stdio", command="node")]
+        connection = FakeConnection(name="broken", start_error=RuntimeError("still down"))
+        connection.is_running = False
+        client = TestableLocalMcpClient(configs, reconnect_backoff_seconds=0)
+        client._connections = {"broken": connection}
+
+        asyncio.run(client._async_start(force_retry=True))
+        self.assertEqual(connection.start_count, 1)
+
+        client.list_server_status(refresh=True)
+        client.list_tools(refresh=True)
+
+        self.assertEqual(connection.start_count, 1)
+
+    def test_retry_server_is_the_explicit_retry_path(self) -> None:
+        configs = [local_mcp_client.McpServerConfig(name="broken", transport="stdio", command="node")]
+        connection = FakeConnection(name="broken", start_error=RuntimeError("still down"))
+        connection.is_running = False
+        client = TestableLocalMcpClient(configs, reconnect_backoff_seconds=0)
+        client._connections = {"broken": connection}
+
+        asyncio.run(client._async_start(force_retry=True))
+        self.assertEqual(connection.start_count, 1)
+
+        client.retry_server("broken")
+
+        self.assertEqual(connection.start_count, 2)
+
+    def test_list_tool_inventory_includes_tools_and_server_health(self) -> None:
+        configs = [local_mcp_client.McpServerConfig(name="healthy", transport="stdio", command="node")]
+        client = TestableLocalMcpClient(configs)
+        client._connections = {
+            "healthy": FakeConnection(
+                name="healthy",
+                tools=[Obj(name="ping", description="Ping", inputSchema={"type": "object"})],
+            )
+        }
+
+        inventory = client.list_tool_inventory(refresh=True)
+
+        self.assertEqual(inventory["tools"][0]["name"], "ping")
+        self.assertEqual(inventory["servers"][0]["status"], "healthy")
+
     def test_list_resources_and_templates_include_server_metadata(self) -> None:
         configs = [local_mcp_client.McpServerConfig(name="kicad", transport="stdio", command="node")]
         client = TestableLocalMcpClient(configs)
@@ -137,7 +371,7 @@ class LocalMcpClientResourceTests(unittest.TestCase):
     def test_kicad_tool_call_normalizes_missing_root_paths(self) -> None:
         configs = [local_mcp_client.McpServerConfig(name="kicad", transport="stdio", command="node")]
         client = TestableLocalMcpClient(configs)
-        connection = FakeConnection()
+        connection = FakeConnection(name="kicad")
         client._connections = {"kicad": connection}
         client._tool_routes = {"kicad_open_project": ("kicad", "open_project")}
 
@@ -155,7 +389,7 @@ class LocalMcpClientResourceTests(unittest.TestCase):
     def test_non_kicad_tool_call_does_not_rewrite_path_arguments(self) -> None:
         configs = [local_mcp_client.McpServerConfig(name="other", transport="stdio", command="node")]
         client = TestableLocalMcpClient(configs)
-        connection = FakeConnection()
+        connection = FakeConnection(name="other")
         client._connections = {"other": connection}
         client._tool_routes = {"open_project": ("other", "open_project")}
 

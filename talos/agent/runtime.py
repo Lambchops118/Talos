@@ -179,6 +179,46 @@ def _resource_tool_definitions() -> list[dict[str, Any]]:
                 "additionalProperties": False,
             },
         },
+        {
+            "type": "function",
+            "name": "list_mcp_server_status",
+            "description": "List configured MCP servers and their current health, failure, and retry state. This is read-only and does not retry degraded servers.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "list_mcp_tools",
+            "description": "List currently available MCP tools and configured server health. Use this when asked what tools are available. This does not retry degraded servers.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "refresh": {
+                        "type": "boolean",
+                        "description": "Refresh the available tool list from currently healthy servers without retrying degraded servers.",
+                    }
+                },
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "retry_mcp_server",
+            "description": "Explicitly retry starting one degraded MCP server, or all degraded servers when server is omitted.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "server": {
+                        "type": "string",
+                        "description": "Optional MCP server name to retry, such as kicad.",
+                    }
+                },
+                "additionalProperties": False,
+            },
+        },
     ]
 
 
@@ -634,6 +674,16 @@ def _invoke_host_tool(mcp_client: Any, name: str, arguments: Any) -> str:
         server = parsed_arguments.get("server")
         server_name = str(server).strip() if server not in (None, "") else None
         return mcp_client.read_resource(uri, server=server_name)
+    if name == "list_mcp_server_status":
+        return json.dumps({"servers": mcp_client.list_server_status()})
+    if name == "list_mcp_tools":
+        return json.dumps(
+            mcp_client.list_tool_inventory(refresh=bool(parsed_arguments.get("refresh")))
+        )
+    if name == "retry_mcp_server":
+        server = parsed_arguments.get("server")
+        server_name = str(server).strip() if server not in (None, "") else None
+        return json.dumps({"servers": mcp_client.retry_server(server_name)})
     raise KeyError(name)
 
 
@@ -646,7 +696,14 @@ def _collect_tool_outputs(response: Any, mcp_client: Any) -> tuple[list[dict[str
 
         print(f"FUNCTION CALL DETECTED: {item.name} with args {item.arguments}")
         try:
-            if item.name in {"list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"}:
+            if item.name in {
+                "list_mcp_resources",
+                "list_mcp_resource_templates",
+                "read_mcp_resource",
+                "list_mcp_server_status",
+                "list_mcp_tools",
+                "retry_mcp_server",
+            }:
                 result = _invoke_host_tool(mcp_client, item.name, item.arguments)
             else:
                 result = mcp_client.call_tool(item.name, item.arguments)
