@@ -7,6 +7,7 @@ import os
 import re
 import sys
 import threading
+import time
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -15,6 +16,32 @@ from typing import Any
 
 class McpProtocolError(RuntimeError):
     pass
+
+
+class McpTimeoutError(TimeoutError):
+    pass
+
+
+@dataclass
+class McpServerHealth:
+    name: str
+    state: str = "unknown"
+    consecutive_failures: int = 0
+    last_error: str | None = None
+    last_started_at: float | None = None
+    last_failed_at: float | None = None
+    next_reconnect_at: float | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "state": self.state,
+            "consecutive_failures": self.consecutive_failures,
+            "last_error": self.last_error,
+            "last_started_at": self.last_started_at,
+            "last_failed_at": self.last_failed_at,
+            "next_reconnect_at": self.next_reconnect_at,
+        }
 
 
 @dataclass
@@ -31,6 +58,19 @@ class McpServerConfig:
     cwd: str | None = None
     env: dict[str, str] = field(default_factory=dict)
     timeout_seconds: float = 30.0
+    startup_timeout_seconds: float | None = None
+    tool_timeout_seconds: float | None = None
+    reconnect_initial_delay_seconds: float = 1.0
+    reconnect_max_delay_seconds: float = 30.0
+    reconnect_attempts: int = 1
+
+    @property
+    def startup_timeout(self) -> float:
+        return self.timeout_seconds if self.startup_timeout_seconds is None else self.startup_timeout_seconds
+
+    @property
+    def tool_timeout(self) -> float:
+        return self.timeout_seconds if self.tool_timeout_seconds is None else self.tool_timeout_seconds
 
     def normalized_transport(self) -> str:
         transport = self.transport.strip().lower().replace("-", "_")
@@ -47,11 +87,40 @@ class _ServerConnection:
         self.config = config
         self._exit_stack: AsyncExitStack | None = None
         self._session: Any = None
+        self.health = McpServerHealth(name=config.name)
+
+    @property
+    def is_running(self) -> bool:
+        return self._session is not None
+
+    def should_attempt_reconnect(self) -> bool:
+        return self.health.next_reconnect_at is None or time.monotonic() >= self.health.next_reconnect_at
 
     async def start(self) -> None:
         if self._session is not None:
             return
 
+        self.health.state = "starting"
+        try:
+            await asyncio.wait_for(self._open_session(), timeout=self.config.startup_timeout)
+            self.health.state = "running"
+            self.health.consecutive_failures = 0
+            self.health.last_error = None
+            self.health.last_started_at = time.time()
+            self.health.next_reconnect_at = None
+        except asyncio.TimeoutError as exc:
+            await self.stop()
+            self._mark_failed(f"Startup timed out after {self.config.startup_timeout:g}s")
+            raise McpTimeoutError(
+                f"MCP server '{self.config.name}' startup timed out after "
+                f"{self.config.startup_timeout:g}s."
+            ) from exc
+        except Exception as exc:
+            await self.stop()
+            self._mark_failed(str(exc) or exc.__class__.__name__)
+            raise
+
+    async def _open_session(self) -> None:
         try:
             from mcp import ClientSession, StdioServerParameters
         except ImportError as exc:  # pragma: no cover - depends on local environment
@@ -118,6 +187,18 @@ class _ServerConnection:
             await stack.aclose()
             raise
 
+    def _mark_failed(self, error: str) -> None:
+        self.health.state = "failed"
+        self.health.consecutive_failures += 1
+        self.health.last_error = error
+        self.health.last_failed_at = time.time()
+        delay = min(
+            self.config.reconnect_max_delay_seconds,
+            self.config.reconnect_initial_delay_seconds
+            * (2 ** max(0, self.health.consecutive_failures - 1)),
+        )
+        self.health.next_reconnect_at = time.monotonic() + delay
+
     async def stop(self) -> None:
         if self._exit_stack is not None:
             await self._exit_stack.aclose()
@@ -126,18 +207,18 @@ class _ServerConnection:
 
     async def list_tools(self) -> Any:
         session = self._require_session()
-        return await session.list_tools()
+        return await self._with_timeout(session.list_tools(), "tools/list")
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         session = self._require_session()
-        return await session.call_tool(name, arguments)
+        return await self._with_timeout(session.call_tool(name, arguments), f"tools/call {name}")
 
     async def list_resources(self) -> Any:
         session = self._require_session()
         method = getattr(session, "list_resources", None)
         if method is None:
             raise RuntimeError(f"MCP server '{self.config.name}' does not support resources/list.")
-        return await method()
+        return await self._with_timeout(method(), "resources/list")
 
     async def list_resource_templates(self) -> Any:
         session = self._require_session()
@@ -146,14 +227,26 @@ class _ServerConnection:
             raise RuntimeError(
                 f"MCP server '{self.config.name}' does not support resources/templates/list."
             )
-        return await method()
+        return await self._with_timeout(method(), "resources/templates/list")
 
     async def read_resource(self, uri: str) -> Any:
         session = self._require_session()
         method = getattr(session, "read_resource", None)
         if method is None:
             raise RuntimeError(f"MCP server '{self.config.name}' does not support resources/read.")
-        return await method(uri)
+        return await self._with_timeout(method(uri), f"resources/read {uri}")
+
+    async def _with_timeout(self, awaitable: Any, operation: str) -> Any:
+        try:
+            return await asyncio.wait_for(awaitable, timeout=self.config.tool_timeout)
+        except asyncio.TimeoutError as exc:
+            await self.stop()
+            message = f"{operation} timed out after {self.config.tool_timeout:g}s"
+            self._mark_failed(message)
+            raise McpTimeoutError(f"MCP server '{self.config.name}' {message}.") from exc
+        except Exception as exc:
+            self._mark_failed(str(exc) or exc.__class__.__name__)
+            raise
 
     def _require_session(self) -> Any:
         if self._session is None:
@@ -298,20 +391,20 @@ class LocalMcpClient:
         self.start()
         return self._run_coro(self._async_read_resource(uri, server))
 
+    def health(self) -> list[dict[str, Any]]:
+        return [self._connections[config.name].health.as_dict() for config in self._configs]
+
     async def _async_start(self) -> None:
-        started_connections: list[_ServerConnection] = []
-        try:
-            for config in self._configs:
-                connection = self._connections[config.name]
+        required_errors: list[str] = []
+        for config in self._configs:
+            connection = self._connections[config.name]
+            try:
                 await connection.start()
-                started_connections.append(connection)
-        except Exception:
-            for connection in reversed(started_connections):
-                try:
-                    await connection.stop()
-                except Exception:
-                    pass
-            raise
+            except Exception as exc:
+                required_errors.append(f"{config.name}: {exc}")
+
+        if required_errors and not any(connection.is_running for connection in self._connections.values()):
+            raise RuntimeError("No MCP servers started: " + "; ".join(required_errors))
 
     async def _async_stop(self) -> None:
         for connection in reversed(list(self._connections.values())):
@@ -325,8 +418,13 @@ class LocalMcpClient:
         routes: dict[str, tuple[str, str]] = {}
 
         for config in self._configs:
-            connection = self._connections[config.name]
-            result = await connection.list_tools()
+            connection = await self._ensure_connection(config.name)
+            if connection is None:
+                continue
+            try:
+                result = await connection.list_tools()
+            except Exception:
+                continue
 
             for tool in getattr(result, "tools", []):
                 raw_name = getattr(tool, "name")
@@ -371,9 +469,13 @@ class LocalMcpClient:
             raise KeyError(name)
 
         server_name, raw_name = route
-        connection = self._connections[server_name]
+        connection = await self._ensure_connection(server_name, force=True)
+        if connection is None:
+            raise RuntimeError(f"MCP server '{server_name}' is unavailable.")
         arguments = self._normalize_tool_arguments(name, server_name, arguments)
-        result = await connection.call_tool(raw_name, arguments)
+        result = await self._retry_connection_operation(
+            server_name, lambda active_connection: active_connection.call_tool(raw_name, arguments)
+        )
 
         is_error = bool(getattr(result, "isError", False))
         text = self._extract_text(result)
@@ -386,7 +488,9 @@ class LocalMcpClient:
         routes: dict[str, list[str]] = {}
 
         for config in self._configs:
-            connection = self._connections[config.name]
+            connection = await self._ensure_connection(config.name)
+            if connection is None:
+                continue
             try:
                 result = await connection.list_resources()
             except Exception:
@@ -417,7 +521,9 @@ class LocalMcpClient:
         templates: list[dict[str, Any]] = []
 
         for config in self._configs:
-            connection = self._connections[config.name]
+            connection = await self._ensure_connection(config.name)
+            if connection is None:
+                continue
             try:
                 result = await connection.list_resource_templates()
             except Exception:
@@ -460,11 +566,13 @@ class LocalMcpClient:
                 )
             resolved_server = unique_routes[0]
 
-        connection = self._connections.get(resolved_server)
+        connection = await self._ensure_connection(resolved_server, force=True)
         if connection is None:
             raise KeyError(resolved_server)
 
-        result = await connection.read_resource(uri)
+        result = await self._retry_connection_operation(
+            resolved_server, lambda active_connection: active_connection.read_resource(uri)
+        )
         return json.dumps(
             {
                 "server": resolved_server,
@@ -472,6 +580,41 @@ class LocalMcpClient:
                 "contents": self._extract_resource_contents(result),
             }
         )
+
+
+    async def _ensure_connection(self, server_name: str, *, force: bool = False) -> _ServerConnection | None:
+        connection = self._connections.get(server_name)
+        if connection is None:
+            return None
+        if connection.is_running:
+            return connection
+        if not force and not connection.should_attempt_reconnect():
+            return None
+        try:
+            await connection.start()
+        except Exception:
+            return None
+        return connection
+
+    async def _retry_connection_operation(self, server_name: str, operation: Any) -> Any:
+        attempts = max(0, self._connections[server_name].config.reconnect_attempts)
+        last_exc: Exception | None = None
+        for attempt in range(attempts + 1):
+            connection = await self._ensure_connection(server_name, force=True)
+            if connection is None:
+                last_exc = RuntimeError(f"MCP server '{server_name}' is unavailable.")
+            else:
+                try:
+                    return await operation(connection)
+                except Exception as exc:
+                    last_exc = exc
+                    if attempt >= attempts:
+                        break
+                    await connection.stop()
+                    connection.health.next_reconnect_at = None
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError(f"MCP server '{server_name}' is unavailable.")
 
     @staticmethod
     def _asdict(item: Any) -> dict[str, Any]:
@@ -820,6 +963,11 @@ def _load_mcp_server_configs() -> list[McpServerConfig]:
             raise ValueError(f"TALOS_MCP_SERVERS entry '{name}' has non-object 'env'.")
 
         timeout_seconds = item.get("timeout_seconds", 30.0)
+        startup_timeout_seconds = item.get("startup_timeout_seconds")
+        tool_timeout_seconds = item.get("tool_timeout_seconds")
+        reconnect_initial_delay_seconds = item.get("reconnect_initial_delay_seconds", 1.0)
+        reconnect_max_delay_seconds = item.get("reconnect_max_delay_seconds", 30.0)
+        reconnect_attempts = item.get("reconnect_attempts", 1)
         configs.append(
             McpServerConfig(
                 name=name,
@@ -834,6 +982,13 @@ def _load_mcp_server_configs() -> list[McpServerConfig]:
                 cwd=_optional_str(item.get("cwd")),
                 env={str(key): str(value) for key, value in env.items()},
                 timeout_seconds=float(timeout_seconds),
+                startup_timeout_seconds=(
+                    None if startup_timeout_seconds is None else float(startup_timeout_seconds)
+                ),
+                tool_timeout_seconds=None if tool_timeout_seconds is None else float(tool_timeout_seconds),
+                reconnect_initial_delay_seconds=float(reconnect_initial_delay_seconds),
+                reconnect_max_delay_seconds=float(reconnect_max_delay_seconds),
+                reconnect_attempts=int(reconnect_attempts),
             )
         )
 

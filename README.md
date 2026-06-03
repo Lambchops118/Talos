@@ -148,6 +148,8 @@ Notes:
 - `auth_token_env` tells TALOS which environment variable contains a bearer token for that remote MCP server.
 - `headers` can also be provided directly in the JSON config if a server needs custom headers.
 - Use `tool_prefix` when a remote server might expose names that collide with local tools.
+- `timeout_seconds` caps both server startup and individual MCP operations unless overridden by `startup_timeout_seconds` or `tool_timeout_seconds`.
+- TALOS tracks per-server health, skips unhealthy servers during tool/resource discovery, and retries a failed tool/resource call according to `reconnect_attempts`, `reconnect_initial_delay_seconds`, and `reconnect_max_delay_seconds`. This keeps one slow or crashed MCP server from hanging the entire agent.
 - TALOS now supports multi-step tool execution loops. Set `TALOS_MAX_TOOL_CALL_ROUNDS` in `.env` if you need to raise or lower the default limit of `8`.
 - Resource reads are text-first. Binary resources are surfaced with MIME metadata and a base64 preview so the model can reason about what is available without flooding context.
 

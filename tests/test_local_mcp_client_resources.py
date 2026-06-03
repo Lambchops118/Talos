@@ -22,11 +22,45 @@ class Obj:
 
 
 class FakeConnection:
-    def __init__(self, *, resources=None, templates=None, read_results=None):
+    def __init__(
+        self,
+        *,
+        resources=None,
+        templates=None,
+        read_results=None,
+        tools=None,
+        fail_start: bool = False,
+        fail_first_tool_call: bool = False,
+    ):
+        self.config = local_mcp_client.McpServerConfig(
+            name="fake", transport="stdio", command="python", reconnect_attempts=1
+        )
         self._resources = Obj(resources=resources or [])
         self._templates = Obj(resourceTemplates=templates or [])
         self._read_results = read_results or {}
+        self._tools = Obj(tools=tools or [])
         self.last_tool_call = None
+        self.health = local_mcp_client.McpServerHealth(name="fake")
+        self.is_running = not fail_start
+        self.start_count = 0
+        self.fail_start = fail_start
+        self.fail_first_tool_call = fail_first_tool_call
+
+    def should_attempt_reconnect(self):
+        return True
+
+    async def start(self):
+        self.start_count += 1
+        if self.fail_start:
+            self.health.state = "failed"
+            self.health.last_error = "boom"
+            self.is_running = False
+            raise RuntimeError("boom")
+        self.health.state = "running"
+        self.is_running = True
+
+    async def stop(self):
+        self.is_running = False
 
     async def list_resources(self):
         return self._resources
@@ -38,10 +72,13 @@ class FakeConnection:
         return self._read_results[uri]
 
     async def list_tools(self):
-        return Obj(tools=[])
+        return self._tools
 
     async def call_tool(self, name: str, arguments):
         self.last_tool_call = (name, arguments)
+        if self.fail_first_tool_call:
+            self.fail_first_tool_call = False
+            raise RuntimeError("transient")
         return Obj(content=[Obj(type="text", text="ok")], isError=False)
 
 
@@ -116,6 +153,62 @@ class LocalMcpClientResourceTests(unittest.TestCase):
         self.assertEqual(payload["server"], "kicad-a")
         self.assertEqual(payload["contents"][0]["kind"], "text")
         self.assertEqual(payload["contents"][0]["text"], '{"name":"demo"}')
+
+    def test_start_keeps_working_servers_when_one_server_fails(self) -> None:
+        configs = [
+            local_mcp_client.McpServerConfig(name="good", transport="stdio", command="python"),
+            local_mcp_client.McpServerConfig(name="bad", transport="stdio", command="python"),
+        ]
+        client = TestableLocalMcpClient(configs)
+        client._connections = {
+            "good": FakeConnection(tools=[Obj(name="ping", description="Ping", inputSchema={})]),
+            "bad": FakeConnection(fail_start=True),
+        }
+
+        tools = client.list_tools(refresh=True)
+
+        self.assertEqual([tool["name"] for tool in tools], ["ping"])
+        self.assertEqual(client._connections["bad"].health.state, "failed")
+
+    def test_tool_call_retries_after_transient_connection_failure(self) -> None:
+        configs = [
+            local_mcp_client.McpServerConfig(
+                name="kicad", transport="stdio", command="node", reconnect_attempts=1
+            )
+        ]
+        client = TestableLocalMcpClient(configs)
+        connection = FakeConnection(fail_first_tool_call=True)
+        client._connections = {"kicad": connection}
+        client._tool_routes = {"kicad_open_project": ("kicad", "open_project")}
+
+        result = client.call_tool("kicad_open_project", {"filename": "demo.kicad_pro"})
+
+        self.assertEqual(result, "ok")
+        self.assertEqual(connection.start_count, 1)
+        self.assertEqual(connection.last_tool_call, ("open_project", {"filename": "demo.kicad_pro"}))
+
+    def test_load_mcp_server_configs_reads_timeout_and_reconnect_settings(self) -> None:
+        raw_config = json.dumps(
+            {
+                "name": "remote",
+                "transport": "streamable_http",
+                "url": "https://example.com/mcp",
+                "timeout_seconds": 15,
+                "startup_timeout_seconds": 5,
+                "tool_timeout_seconds": 10,
+                "reconnect_initial_delay_seconds": 2,
+                "reconnect_max_delay_seconds": 8,
+                "reconnect_attempts": 3,
+            }
+        )
+        with patch.dict(os.environ, {"TALOS_MCP_SERVERS": raw_config, "KICAD_MCP_SERVER_PATH": ""}):
+            configs = local_mcp_client._load_mcp_server_configs()
+
+        self.assertEqual(configs[0].startup_timeout, 5)
+        self.assertEqual(configs[0].tool_timeout, 10)
+        self.assertEqual(configs[0].reconnect_initial_delay_seconds, 2)
+        self.assertEqual(configs[0].reconnect_max_delay_seconds, 8)
+        self.assertEqual(configs[0].reconnect_attempts, 3)
 
     def test_load_mcp_server_configs_appends_optional_kicad_server(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
