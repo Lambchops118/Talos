@@ -7,7 +7,7 @@ from pathlib import Path
 from   dotenv import load_dotenv; load_dotenv()
 
 #import InfoPanel.gears as gears
-import windows
+from . import windows
 
 font_path     = str(Path(__file__).resolve().parent / "VT323-Regular.ttf")
 #font          = pygame.font.SysFont(None, 24)

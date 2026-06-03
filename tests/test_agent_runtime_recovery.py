@@ -1,25 +1,17 @@
 from __future__ import annotations
 
-import importlib.util
 import os
 import sys
 import unittest
 from pathlib import Path
 
-
-INFO_PANEL_DIR = Path(__file__).resolve().parents[1] / "InfoPanel"
-MODULE_PATH = INFO_PANEL_DIR / "agent_runtime.py"
-if str(INFO_PANEL_DIR) not in sys.path:
-    sys.path.insert(0, str(INFO_PANEL_DIR))
-
 os.environ.setdefault("OPENAI_API_KEY", "test-key")
 
-SPEC = importlib.util.spec_from_file_location("talos_agent_runtime", MODULE_PATH)
-if SPEC is None or SPEC.loader is None:
-    raise RuntimeError(f"Unable to load module spec for {MODULE_PATH}")
-agent_runtime = importlib.util.module_from_spec(SPEC)
-sys.modules[SPEC.name] = agent_runtime
-SPEC.loader.exec_module(agent_runtime)
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from talos.agent import runtime as agent_runtime
 
 
 class AgentRuntimeRecoveryTests(unittest.TestCase):

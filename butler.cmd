@@ -1,9 +1,10 @@
 @echo off
 setlocal
 set SCRIPT_DIR=%~dp0
+cd /d "%SCRIPT_DIR%"
 
 if exist "%SCRIPT_DIR%\.venv\Scripts\python.exe" (
-    "%SCRIPT_DIR%\.venv\Scripts\python.exe" "%SCRIPT_DIR%\InfoPanel\chat_client.py" %*
+    "%SCRIPT_DIR%\.venv\Scripts\python.exe" -m talos.text.client %*
 ) else (
-    py -3 "%SCRIPT_DIR%\InfoPanel\chat_client.py" %*
+    py -3 -m talos.text.client %*
 )
