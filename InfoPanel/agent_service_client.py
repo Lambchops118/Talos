@@ -5,7 +5,16 @@ import os
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - optional dependency in some launch paths
+    load_dotenv = None
+
+ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+if load_dotenv is not None:
+    load_dotenv(dotenv_path=ENV_PATH)
 
 DEFAULT_URL = os.getenv("TALOS_TEXT_AGENT_URL", "http://127.0.0.1:8420")
 DEFAULT_TOKEN = os.getenv("TALOS_TEXT_AGENT_TOKEN", os.getenv("TEXT_AGENT_API_TOKEN", ""))
@@ -58,7 +67,14 @@ def request_json(
         message = body_text or str(exc)
         raise RuntimeError(f"HTTP {exc.code}: {message}") from exc
     except urllib.error.URLError as exc:
-        raise RuntimeError(f"Connection error: {exc.reason}") from exc
+        hint = (
+            f"Connection error: {exc.reason}. "
+            f"Target: {base_url}. "
+            "Make sure the main TALOS process is running "
+            "(`python InfoPanel/agent_main.py`) and that `TEXT_AGENT_HOST` / "
+            "`TEXT_AGENT_PORT` or `TALOS_TEXT_AGENT_URL` point to the correct server."
+        )
+        raise RuntimeError(hint) from exc
 
 
 def send_message(
@@ -123,4 +139,8 @@ def check_health(
                 raise RuntimeError("Server returned a non-object JSON payload.")
             return body
     except urllib.error.URLError as exc:
-        raise RuntimeError(f"Could not reach {base_url}: {exc.reason}") from exc
+        raise RuntimeError(
+            f"Could not reach {base_url}: {exc.reason}. "
+            "Start the main TALOS process first (`python InfoPanel/agent_main.py`) "
+            "or update `TALOS_TEXT_AGENT_URL` to the active host."
+        ) from exc

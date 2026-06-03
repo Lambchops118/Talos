@@ -3,8 +3,18 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from pathlib import Path
+
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - optional dependency in some launch paths
+    load_dotenv = None
 
 from agent_service_client import check_health, reset_session, send_message
+
+ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+if load_dotenv is not None:
+    load_dotenv(dotenv_path=ENV_PATH)
 
 DEFAULT_URL = os.getenv("TALOS_TEXT_AGENT_URL", "http://127.0.0.1:8420")
 DEFAULT_TOKEN = os.getenv("TALOS_TEXT_AGENT_TOKEN", os.getenv("TEXT_AGENT_API_TOKEN", ""))
