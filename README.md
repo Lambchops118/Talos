@@ -8,40 +8,51 @@ TALOS is a home automation and voice-assistant project built around a Python hos
 
 ## Project Layout
 
-- `InfoPanel/`: desktop application, voice pipeline, scheduler, and on-screen status UI
+- `talos/`: main locally-run agent, voice/text workers, scheduler, services, and MCP runtime
+- `InfoPanel/`: pygame display modules and visual assets used by the GUI
 - `Peripherals/fan/`: Raspberry Pi Pico W script for MQTT-controlled fan switching
 - `Peripherals/quad_pump/`: Raspberry Pi Pico W script for MQTT-controlled plant watering
 - `Peripherals/mqtt_server/control_display.py`: MQTT listener that sends TV power/input commands
-- `tests/`: local experiments and prototype scripts
+- `archive/`: older InfoPanel prototypes kept for reference
+- `experiments/`: visual and hardware experiments that are not part of the main runtime
+- `tests/`: unit tests plus older local prototype scripts
 
 ## Build
 
-This repository does not currently produce packaged installers or binary artifacts. The main build target is the Python host application in `InfoPanel/`, with peripheral scripts deployed manually to MicroPython devices.
+This repository does not currently produce packaged installers or binary artifacts. The main build target is the Python host application in `talos/`, with peripheral scripts deployed manually to MicroPython devices.
 
 ### Host Application
 
-Recommended prerequisites:
+Recommended prerequisites for the split-process setup:
 
-- Python 3.11+
+- Python 3.10+ for the main TALOS agent/display process
+- Python 3.12 for the separate voice worker process
 - PortAudio development/runtime libraries for `PyAudio`
 - A reachable MQTT broker
 - Valid API credentials in `.env`
 
-Setup:
+Setup the main agent environment:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
+python3.10 -m venv .venv-main
+source .venv-main/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-python -m pip install "mcp[cli]"
-python -m pip install pyowm
+python -m pip install -r requirements-main-py310.txt
+```
+
+Setup the voice worker environment:
+
+```bash
+python3.12 -m venv .venv-voice
+source .venv-voice/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements-voice-py312.txt
 ```
 
 On Windows PowerShell, activate the environment with:
 
 ```powershell
-.venv\Scripts\Activate.ps1
+.venv-main\Scripts\Activate.ps1
 ```
 
 The application reads configuration from `.env`. At minimum, the current code references:
@@ -74,20 +85,20 @@ Optional text-agent settings:
 Run the host app:
 
 ```bash
-python InfoPanel/main.py
+.venv-main/bin/python -m talos
 ```
 
 Voice benchmark summaries print directly to the main app terminal. Each app run also creates a new timestamped CSV in `logs/`, for example `voice_benchmarks_20260511_124500_123456.csv`.
 
 ### MCP Tools And Resources
 
-TALOS can expose tools from one or more MCP servers. By default, if `TALOS_MCP_SERVERS` is unset, it uses the built-in local aggregate server in `InfoPanel/mcp_server.py`. If `TALOS_MCP_SERVERS` is set, `InfoPanel/local_mcp_client.py` treats it as the full MCP server list and manages all configured connections.
+TALOS can expose tools from one or more MCP servers. By default, if `TALOS_MCP_SERVERS` is unset, it uses the built-in local aggregate server in `talos/mcp_server.py`. If `TALOS_MCP_SERVERS` is set, `talos/mcp_client/client.py` treats it as the full MCP server list and manages all configured connections.
 
 The current flow is:
 
-1. `InfoPanel/local_mcp_client.py` starts one or more MCP connections.
+1. `talos/mcp_client/client.py` starts one or more MCP connections.
 2. Each configured server is queried with `tools/list`.
-3. The returned tools are merged into one tool surface for `InfoPanel/agent_runtime.py`.
+3. The returned tools are merged into one tool surface for `talos/agent/runtime.py`.
 4. The runtime also exposes host-level helper tools for MCP resources: `list_mcp_resources`, `list_mcp_resource_templates`, and `read_mcp_resource`.
 5. If the model chooses a tool, TALOS routes that call back to the MCP server that owns it.
 
@@ -98,7 +109,7 @@ Supported transports in the current client:
 
 If two servers expose the same tool name, you must set a `tool_prefix` on at least one of them so the merged tool list stays unique.
 
-Tool implementations are registered in provider modules under `InfoPanel/mcp_servers/providers/`. The existing home automation tools are defined in `InfoPanel/mcp_servers/providers/home_automation.py` with `@server.tool()` decorators, and their actual device logic lives in `InfoPanel/home_automation_actions.py`.
+Tool implementations are registered in provider modules under `talos/mcp_servers/providers/`. The existing home automation tools are defined in `talos/mcp_servers/providers/home_automation.py` with `@server.tool()` decorators, and their actual device logic lives in `talos/services/home_automation.py`.
 
 The home automation provider also exposes:
 
@@ -107,9 +118,9 @@ The home automation provider also exposes:
 
 Server assembly is separate from tool definition:
 
-- `InfoPanel/mcp_servers/aggregate.py` defines the tool surface used by the local agent runtime.
-- `InfoPanel/mcp_servers/home_automation_server.py` and `InfoPanel/mcp_servers/tv_control_server.py` expose standalone servers for specific domains.
-- `InfoPanel/mcp_http_app.py` mounts those domain servers over HTTP.
+- `talos/mcp_servers/aggregate.py` defines the tool surface used by the local agent runtime.
+- `talos/mcp_servers/home_automation_server.py` and `talos/mcp_servers/tv_control_server.py` expose standalone servers for specific domains.
+- `talos/mcp_http_app.py` mounts those domain servers over HTTP.
 
 Example `TALOS_MCP_SERVERS` value:
 
@@ -119,7 +130,7 @@ Example `TALOS_MCP_SERVERS` value:
     "name": "talos-local",
     "transport": "stdio",
     "command": "python",
-    "args": ["InfoPanel/mcp_server.py"]
+    "args": ["-m", "talos.mcp_server"]
   },
   {
     "name": "github",
@@ -153,12 +164,12 @@ KICAD_MCP_SERVER_PATH=/Users/you/MCP/KiCAD-MCP-Server
 KICAD_MCP_COMMAND=node
 KICAD_MCP_TOOL_PREFIX=kicad_
 KICAD_AUTO_LAUNCH=false
-KICAD_PYTHONPATH=/Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/lib/python3.9/site-packages
+KICAD_PYTHONPATH=/Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/lib/python3.10/site-packages
 ```
 
 To add a new MCP tool in an existing domain:
 
-1. Add the real logic to the relevant actions module, such as `InfoPanel/home_automation_actions.py`.
+1. Add the real logic to the relevant service module, such as `talos/services/home_automation.py`.
 2. Register a tool in the matching provider module with `@server.tool()`.
 3. Use a clear docstring and typed parameters. The MCP SDK uses those to describe the tool and generate its input schema.
 4. Restart the TALOS process so the local MCP client refreshes its cached tool list.
@@ -174,11 +185,11 @@ def set_thermostat(target_f: int) -> str:
 
 To add a new MCP tool domain:
 
-1. Create `InfoPanel/mcp_servers/providers/<domain>.py` with a `register(server)` function.
-2. Export that registrar from `InfoPanel/mcp_servers/providers/__init__.py`.
-3. Add the registrar to `InfoPanel/mcp_servers/aggregate.py` if the main TALOS agent should be able to use it.
-4. Optionally create a dedicated `InfoPanel/mcp_servers/<domain>_server.py`.
-5. Optionally mount that server in `InfoPanel/mcp_http_app.py` if you want HTTP access.
+1. Create `talos/mcp_servers/providers/<domain>.py` with a `register(server)` function.
+2. Export that registrar from `talos/mcp_servers/providers/__init__.py`.
+3. Add the registrar to `talos/mcp_servers/aggregate.py` if the main TALOS agent should be able to use it.
+4. Optionally create a dedicated `talos/mcp_servers/<domain>_server.py`.
+5. Optionally mount that server in `talos/mcp_http_app.py` if you want HTTP access.
 
 ### Split Agent And Voice Worker
 
@@ -190,19 +201,19 @@ TALOS can now run as two separate processes:
 Start the main agent:
 
 ```bash
-python InfoPanel/agent_main.py
+.venv-main/bin/python -m talos
 ```
 
 or equivalently:
 
 ```bash
-python InfoPanel/main.py
+.venv-main/bin/python -m talos.agent_main
 ```
 
 Start the voice worker separately:
 
 ```bash
-python InfoPanel/voice_worker.py
+.venv-voice/bin/python -m talos.voice.worker
 ```
 
 The voice worker sends recognized commands to the main agent over the text-agent HTTP API using `TALOS_TEXT_AGENT_URL` and `TALOS_TEXT_AGENT_TOKEN`.
@@ -253,13 +264,13 @@ You can also use the built-in terminal client instead of raw `curl`.
 One-shot command:
 
 ```bash
-python InfoPanel/chat_client.py --url "http://<tailscale-hostname-or-ip>:8420" --token "<your-token>" --session-id "main-pc" "turn the fan on"
+python -m talos.text.client --url "http://<tailscale-hostname-or-ip>:8420" --token "<your-token>" --session-id "main-pc" "turn the fan on"
 ```
 
 Interactive mode:
 
 ```bash
-python InfoPanel/chat_client.py --url "http://<tailscale-hostname-or-ip>:8420" --token "<your-token>" --session-id "main-pc"
+python -m talos.text.client --url "http://<tailscale-hostname-or-ip>:8420" --token "<your-token>" --session-id "main-pc"
 ```
 
 On Windows, the repository root now includes `butler.cmd`, which launches the same client. If the repo root is on your `PATH`, you can run:

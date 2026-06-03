@@ -8,13 +8,12 @@ from pathlib import Path
 from   dotenv import load_dotenv; load_dotenv()
 
 #import gears2 as gears
-import screen_effects as fx
-import butler_vector_art as MBVectorArt
-from   screen_effects import GpuCRT
-import obj_wireframe_loader as objl
-import moving_vector_portrait as vec3d
-
-import windows
+from . import butler_vector_art as MBVectorArt
+from . import moving_vector_portrait as vec3d
+from . import obj_wireframe_loader as objl
+from . import screen_effects as fx
+from . import windows
+from .screen_effects import GpuCRT
 
 font_path = str(Path(__file__).resolve().parent / "VT323-Regular.ttf")
 

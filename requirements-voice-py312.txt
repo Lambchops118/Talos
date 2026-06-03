@@ -1,0 +1,13 @@
+# TALOS voice worker process.
+# Intended for the Python 3.12 environment used to run:
+#   python3.12 -m talos.voice.worker
+
+boto3==1.40.65
+numpy==2.3.4
+openai==2.7.0
+openai-whisper
+openwakeword
+PyAudio==0.2.14
+python-dotenv==1.2.1
+SpeechRecognition==3.14.3
+

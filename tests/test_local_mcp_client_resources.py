@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 import json
 import os
 import sys
@@ -10,14 +9,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-MODULE_PATH = Path(__file__).resolve().parents[1] / "InfoPanel" / "local_mcp_client.py"
-SPEC = importlib.util.spec_from_file_location("talos_local_mcp_client", MODULE_PATH)
-if SPEC is None or SPEC.loader is None:
-    raise RuntimeError(f"Unable to load module spec for {MODULE_PATH}")
-local_mcp_client = importlib.util.module_from_spec(SPEC)
-sys.modules[SPEC.name] = local_mcp_client
-SPEC.loader.exec_module(local_mcp_client)
+from talos.mcp_client import client as local_mcp_client
 
 
 class Obj:
