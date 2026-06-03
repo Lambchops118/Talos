@@ -9,7 +9,7 @@ This repo implements the TALOS locally-run voice/text agent plus a pygame displa
 - Archive and experiments: `archive/` and `experiments/` are not part of the main runtime.
 
 2. Runtime Flow
-- `python -m talos` starts the main process in `talos/main.py`.
+- `.venv-main/bin/python -m talos` starts the main process in `talos/main.py`.
 - `talos/router.py` consumes central messages and calls `talos.agent.runtime.run_command(...)` for foreground agent work.
 - `talos/text/server.py` exposes the local HTTP chat API.
 - `talos/voice/worker.py` starts the microphone/wake-word/STT/TTS voice process.
@@ -17,10 +17,10 @@ This repo implements the TALOS locally-run voice/text agent plus a pygame displa
 
 3. Common Commands
 ```bash
-python -m talos
-python -m talos.voice.worker
-python -m talos.text.client --health
-python -m unittest tests/test_agent_runtime_recovery.py tests/test_local_mcp_client_resources.py
+.venv-main/bin/python -m talos
+.venv-voice/bin/python -m talos.voice.worker
+.venv-main/bin/python -m talos.text.client --health
+.venv-main/bin/python -m unittest tests/test_agent_runtime_recovery.py tests/test_local_mcp_client_resources.py
 ```
 
 4. Where To Change Things
@@ -38,5 +38,7 @@ python -m unittest tests/test_agent_runtime_recovery.py tests/test_local_mcp_cli
 5. Gotchas
 - Pygame belongs on the main thread.
 - Audio dependencies can fail on headless machines.
+- The main process is intended to run from Python 3.10+ so MCP can operate normally.
+- The voice worker is intended to run from Python 3.12 and is the only path that imports Whisper/openwakeword.
 - Do not put new agent/runtime files under `InfoPanel`; that directory is only the GUI/display artifact now.
 - Keep hardware/MQTT changes isolated in `talos/services/` or `Peripherals/`.

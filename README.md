@@ -23,28 +23,36 @@ This repository does not currently produce packaged installers or binary artifac
 
 ### Host Application
 
-Recommended prerequisites:
+Recommended prerequisites for the split-process setup:
 
-- Python 3.11+
+- Python 3.10+ for the main TALOS agent/display process
+- Python 3.12 for the separate voice worker process
 - PortAudio development/runtime libraries for `PyAudio`
 - A reachable MQTT broker
 - Valid API credentials in `.env`
 
-Setup:
+Setup the main agent environment:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
+python3.10 -m venv .venv-main
+source .venv-main/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-python -m pip install "mcp[cli]"
-python -m pip install pyowm
+python -m pip install -r requirements-main-py310.txt
+```
+
+Setup the voice worker environment:
+
+```bash
+python3.12 -m venv .venv-voice
+source .venv-voice/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements-voice-py312.txt
 ```
 
 On Windows PowerShell, activate the environment with:
 
 ```powershell
-.venv\Scripts\Activate.ps1
+.venv-main\Scripts\Activate.ps1
 ```
 
 The application reads configuration from `.env`. At minimum, the current code references:
@@ -77,7 +85,7 @@ Optional text-agent settings:
 Run the host app:
 
 ```bash
-python -m talos
+.venv-main/bin/python -m talos
 ```
 
 Voice benchmark summaries print directly to the main app terminal. Each app run also creates a new timestamped CSV in `logs/`, for example `voice_benchmarks_20260511_124500_123456.csv`.
@@ -156,7 +164,7 @@ KICAD_MCP_SERVER_PATH=/Users/you/MCP/KiCAD-MCP-Server
 KICAD_MCP_COMMAND=node
 KICAD_MCP_TOOL_PREFIX=kicad_
 KICAD_AUTO_LAUNCH=false
-KICAD_PYTHONPATH=/Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/lib/python3.9/site-packages
+KICAD_PYTHONPATH=/Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/lib/python3.10/site-packages
 ```
 
 To add a new MCP tool in an existing domain:
@@ -193,19 +201,19 @@ TALOS can now run as two separate processes:
 Start the main agent:
 
 ```bash
-python -m talos
+.venv-main/bin/python -m talos
 ```
 
 or equivalently:
 
 ```bash
-python -m talos.agent_main
+.venv-main/bin/python -m talos.agent_main
 ```
 
 Start the voice worker separately:
 
 ```bash
-python -m talos.voice.worker
+.venv-voice/bin/python -m talos.voice.worker
 ```
 
 The voice worker sends recognized commands to the main agent over the text-agent HTTP API using `TALOS_TEXT_AGENT_URL` and `TALOS_TEXT_AGENT_TOKEN`.

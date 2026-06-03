@@ -5,7 +5,6 @@ from zoneinfo import ZoneInfo
 import paho.mqtt.client as mqtt
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from pyowm import OWM
 
 from talos.messages import Message, VoicePayload
 from talos.services import tv_control
@@ -15,6 +14,17 @@ BROKER   = "192.168.1.160"
 PORT     = 1883
 city     = "Ellicott City,MD,US"
 open_weather_api_key = os.getenv("OPEN_WEATHER_API_KEY")
+
+
+def _weather_manager():
+    try:
+        from pyowm import OWM
+    except ImportError as exc:
+        raise RuntimeError(
+            "pyowm is required for scheduled weather updates. "
+            "Install project dependencies with: python3 -m pip install -r requirements.txt"
+        ) from exc
+    return OWM(open_weather_api_key).weather_manager()
 
 def degrees_to_compass(deg):
     directions = [
@@ -55,8 +65,7 @@ def dim_display(): #This will require a script on the PI to listen on this MQTT 
 def update_infopanel_information(gui_queue, central_queue=None):
     # fetch data here
     # This will NOT BLOCK infopanel GUI or voice commands because its in a separate thread
-    owm         = OWM(open_weather_api_key)
-    mgr         = owm.weather_manager()
+    mgr         = _weather_manager()
     observation = mgr.weather_at_place(city)
     weather     = observation.weather
 
@@ -86,8 +95,7 @@ def update_dynamo_information(gui_queue, central_queue=None):
 
 # VOICE FUNCTIONS #####################################################################################################################################
 def morning_report_job(gui_queue, central_queue=None):
-    owm         = OWM(open_weather_api_key)
-    mgr         = owm.weather_manager()
+    mgr         = _weather_manager()
     observation = mgr.weather_at_place(city)
     weather     = observation.weather
     temp_data   = weather.temperature("fahrenheit")

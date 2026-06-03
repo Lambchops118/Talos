@@ -17,7 +17,7 @@ class McpProtocolError(RuntimeError):
     pass
 
 
-@dataclass(slots=True)
+@dataclass
 class McpServerConfig:
     name: str
     transport: str
@@ -57,7 +57,8 @@ class _ServerConnection:
         except ImportError as exc:  # pragma: no cover - depends on local environment
             raise RuntimeError(
                 "The MCP Python SDK is required for TALOS MCP clients. "
-                'Install it with: pip install "mcp[cli]"'
+                "The current SDK requires Python 3.10+. "
+                'Install it in a compatible environment with: pip install "mcp[cli]"'
             ) from exc
 
         stack = AsyncExitStack()
