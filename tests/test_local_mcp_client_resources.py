@@ -25,31 +25,51 @@ class FakeConnection:
     def __init__(
         self,
         *,
+        name: str = "fake",
         resources=None,
         templates=None,
         read_results=None,
         tools=None,
         fail_start: bool = False,
         fail_first_tool_call: bool = False,
+        enforce_same_task: bool = False,
     ):
         self.config = local_mcp_client.McpServerConfig(
-            name="fake", transport="stdio", command="python", reconnect_attempts=1
+            name=name, transport="stdio", command="python", reconnect_attempts=1
         )
         self._resources = Obj(resources=resources or [])
         self._templates = Obj(resourceTemplates=templates or [])
         self._read_results = read_results or {}
         self._tools = Obj(tools=tools or [])
         self.last_tool_call = None
-        self.health = local_mcp_client.McpServerHealth(name="fake")
+        self.health = local_mcp_client.McpServerHealth(name=name)
         self.is_running = not fail_start
         self.start_count = 0
         self.fail_start = fail_start
         self.fail_first_tool_call = fail_first_tool_call
+        self.enforce_same_task = enforce_same_task
+        self.owner_task_id = None
+        self.task_records = []
 
     def should_attempt_reconnect(self):
         return True
 
+    def _record_task(self, operation: str) -> None:
+        task = asyncio.current_task()
+        task_id = id(task) if task is not None else None
+        self.task_records.append((operation, task_id))
+        if not self.enforce_same_task:
+            return
+        if self.owner_task_id is None:
+            self.owner_task_id = task_id
+            return
+        if task_id != self.owner_task_id:
+            raise RuntimeError(
+                f"{operation} ran in task {task_id}, expected task {self.owner_task_id}"
+            )
+
     async def start(self):
+        self._record_task("start")
         self.start_count += 1
         if self.fail_start:
             self.health.state = "failed"
@@ -60,21 +80,27 @@ class FakeConnection:
         self.is_running = True
 
     async def stop(self):
+        self._record_task("stop")
         self.is_running = False
 
     async def list_resources(self):
+        self._record_task("list_resources")
         return self._resources
 
     async def list_resource_templates(self):
+        self._record_task("list_resource_templates")
         return self._templates
 
     async def read_resource(self, uri: str):
+        self._record_task("read_resource")
         return self._read_results[uri]
 
     async def list_tools(self):
+        self._record_task("list_tools")
         return self._tools
 
     async def call_tool(self, name: str, arguments):
+        self._record_task("call_tool")
         self.last_tool_call = (name, arguments)
         if self.fail_first_tool_call:
             self.fail_first_tool_call = False
@@ -186,6 +212,31 @@ class LocalMcpClientResourceTests(unittest.TestCase):
         self.assertEqual(result, "ok")
         self.assertEqual(connection.start_count, 1)
         self.assertEqual(connection.last_tool_call, ("open_project", {"filename": "demo.kicad_pro"}))
+
+    def test_real_client_runs_start_and_resource_refresh_in_same_task(self) -> None:
+        configs = [local_mcp_client.McpServerConfig(name="kicad", transport="stdio", command="python")]
+        client = local_mcp_client.LocalMcpClient(configs)
+        connection = FakeConnection(
+            name="kicad",
+            tools=[Obj(name="ping", description="Ping", inputSchema={})],
+            resources=[Obj(uri="kicad://project/current/info", name="Project Info")],
+            enforce_same_task=True,
+        )
+        client._connections = {"kicad": connection}
+
+        try:
+            tools = client.list_tools(refresh=True)
+            resources = client.list_resources(refresh=True)
+        finally:
+            client.stop()
+
+        self.assertEqual([tool["name"] for tool in tools], ["ping"])
+        self.assertEqual(resources[0]["uri"], "kicad://project/current/info")
+        self.assertEqual(connection.start_count, 1)
+        self.assertEqual(
+            [operation for operation, _task_id in connection.task_records],
+            ["start", "list_tools", "list_resources", "stop"],
+        )
 
     def test_load_mcp_server_configs_reads_timeout_and_reconnect_settings(self) -> None:
         raw_config = json.dumps(

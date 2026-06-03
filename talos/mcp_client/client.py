@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import concurrent.futures
 import json
 import os
 import re
@@ -292,6 +293,9 @@ class LocalMcpClient:
 
         self._loop: asyncio.AbstractEventLoop | None = None
         self._loop_thread: threading.Thread | None = None
+        self._request_queue: asyncio.Queue[tuple[Any, concurrent.futures.Future[Any]] | None] | None = None
+        self._dispatcher_ready = threading.Event()
+        self._dispatcher_done: concurrent.futures.Future[None] | None = None
 
     def start(self) -> None:
         with self._lock:
@@ -305,6 +309,10 @@ class LocalMcpClient:
             self._loop = loop
             self._loop_thread = thread
             try:
+                self._dispatcher_ready.clear()
+                self._loop.call_soon_threadsafe(self._start_dispatcher)
+                if not self._dispatcher_ready.wait(timeout=2):
+                    raise RuntimeError("Local MCP dispatcher did not start.")
                 self._run_coro(self._async_start())
             except Exception:
                 self._shutdown_loop()
@@ -758,13 +766,74 @@ class LocalMcpClient:
         asyncio.set_event_loop(loop)
         loop.run_forever()
 
+    def _start_dispatcher(self) -> None:
+        self._request_queue = asyncio.Queue()
+        self._dispatcher_done = concurrent.futures.Future()
+        asyncio.create_task(self._dispatcher())
+        self._dispatcher_ready.set()
+
+    async def _dispatcher(self) -> None:
+        try:
+            while True:
+                if self._request_queue is None:
+                    return
+
+                item = await self._request_queue.get()
+                if item is None:
+                    return
+
+                coro, result_future = item
+                try:
+                    result = await coro
+                except Exception as exc:
+                    if not result_future.done():
+                        result_future.set_exception(exc)
+                else:
+                    if not result_future.done():
+                        result_future.set_result(result)
+        finally:
+            if self._dispatcher_done is not None and not self._dispatcher_done.done():
+                self._dispatcher_done.set_result(None)
+
     def _run_coro(self, coro):
-        if self._loop is None:
+        if self._loop is None or self._request_queue is None:
             raise RuntimeError("Local MCP loop is not running.")
-        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
-        return future.result()
+        result_future: concurrent.futures.Future[Any] = concurrent.futures.Future()
+
+        def enqueue() -> None:
+            if self._request_queue is None:
+                if not result_future.done():
+                    result_future.set_exception(RuntimeError("Local MCP dispatcher is not running."))
+                return
+            self._request_queue.put_nowait((coro, result_future))
+
+        try:
+            self._loop.call_soon_threadsafe(enqueue)
+        except Exception:
+            coro.close()
+            raise
+        return result_future.result()
 
     def _shutdown_loop(self) -> None:
+        if self._loop is not None and self._request_queue is not None:
+            shutdown_future: concurrent.futures.Future[Any] = concurrent.futures.Future()
+
+            def enqueue_shutdown() -> None:
+                if self._request_queue is None:
+                    if not shutdown_future.done():
+                        shutdown_future.set_result(None)
+                    return
+                self._request_queue.put_nowait(None)
+                if not shutdown_future.done():
+                    shutdown_future.set_result(None)
+
+            try:
+                self._loop.call_soon_threadsafe(enqueue_shutdown)
+                shutdown_future.result(timeout=2)
+                if self._dispatcher_done is not None:
+                    self._dispatcher_done.result(timeout=2)
+            except Exception:
+                pass
         if self._loop is not None:
             self._loop.call_soon_threadsafe(self._loop.stop)
         if self._loop_thread is not None:
@@ -773,6 +842,8 @@ class LocalMcpClient:
             self._loop.close()
         self._loop = None
         self._loop_thread = None
+        self._request_queue = None
+        self._dispatcher_done = None
 
     @staticmethod
     def _parse_arguments(arguments: str | dict[str, Any] | None) -> dict[str, Any]:
