@@ -4,6 +4,7 @@ import asyncio
 import base64
 import json
 import os
+import re
 import sys
 import threading
 from contextlib import AsyncExitStack
@@ -244,12 +245,17 @@ class LocalMcpClient:
     def openai_tool_definitions(self) -> list[dict[str, Any]]:
         definitions = []
         for tool in self.list_tools():
+            description = tool.get("description", "")
+            parameters = tool.get("inputSchema", {"type": "object", "properties": {}})
+            description, parameters = self._decorate_openai_tool_schema(
+                tool["name"], description, parameters
+            )
             definitions.append(
                 {
                     "type": "function",
                     "name": tool["name"],
-                    "description": tool.get("description", ""),
-                    "parameters": tool.get("inputSchema", {"type": "object", "properties": {}}),
+                    "description": description,
+                    "parameters": parameters,
                 }
             )
         return definitions
@@ -365,6 +371,7 @@ class LocalMcpClient:
 
         server_name, raw_name = route
         connection = self._connections[server_name]
+        arguments = self._normalize_tool_arguments(name, server_name, arguments)
         result = await connection.call_tool(raw_name, arguments)
 
         is_error = bool(getattr(result, "isError", False))
@@ -563,6 +570,46 @@ class LocalMcpClient:
             return f"[Server: {server_name}] {base_description}"
         return f"[Server: {server_name}]"
 
+    @classmethod
+    def _decorate_openai_tool_schema(
+        cls, name: str, description: str, parameters: dict[str, Any]
+    ) -> tuple[str, dict[str, Any]]:
+        description_text = str(description or "").strip()
+        schema = json.loads(json.dumps(parameters or {"type": "object", "properties": {}}))
+
+        if not name.startswith("kicad_"):
+            return description_text, schema
+
+        notes: list[str] = []
+        properties = schema.get("properties")
+        if isinstance(properties, dict):
+            path_note_added = False
+            for field_name in cls._PATH_ARGUMENT_FIELDS:
+                field = properties.get(field_name)
+                if not isinstance(field, dict):
+                    continue
+                base = str(field.get("description") or "").strip()
+                suffix = "Use an absolute filesystem path."
+                if suffix not in base:
+                    field["description"] = f"{base} {suffix}".strip()
+                path_note_added = True
+            if path_note_added:
+                notes.append(
+                    "Use absolute filesystem paths for filename/path/schematicPath/boardPath/projectPath fields."
+                )
+
+        if name == "kicad_add_schematic_component":
+            notes.append(
+                "Use canonical KiCad library symbols; for power rails prefer power:+5V and power:GND instead of inventing Device:V."
+            )
+
+        if notes:
+            if description_text:
+                description_text = f"{description_text} {' '.join(notes)}"
+            else:
+                description_text = " ".join(notes)
+        return description_text, schema
+
     def _run_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         asyncio.set_event_loop(loop)
         loop.run_forever()
@@ -613,6 +660,50 @@ class LocalMcpClient:
         if structured is not None:
             return json.dumps(structured)
         return ""
+
+    _PATH_ARGUMENT_FIELDS = {
+        "path",
+        "filename",
+        "schematicPath",
+        "boardPath",
+        "projectPath",
+        "template",
+    }
+    _MISSING_ROOT_PATH_RE = re.compile(r"^(Users|private|Applications|Volumes)/")
+
+    @classmethod
+    def _normalize_tool_arguments(
+        cls, name: str, server_name: str, arguments: dict[str, Any]
+    ) -> dict[str, Any]:
+        if not arguments:
+            return arguments
+        if "kicad" not in server_name.lower() and not name.startswith("kicad_"):
+            return arguments
+        return cls._normalize_kicad_argument_value(arguments)
+
+    @classmethod
+    def _normalize_kicad_argument_value(cls, value: Any, *, key: str | None = None) -> Any:
+        if isinstance(value, dict):
+            return {
+                dict_key: cls._normalize_kicad_argument_value(dict_value, key=str(dict_key))
+                for dict_key, dict_value in value.items()
+            }
+        if isinstance(value, list):
+            return [cls._normalize_kicad_argument_value(item) for item in value]
+        if isinstance(value, str) and key in cls._PATH_ARGUMENT_FIELDS:
+            return cls._normalize_path_string(value)
+        return value
+
+    @classmethod
+    def _normalize_path_string(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            return value
+        if normalized.startswith("~"):
+            return str(Path(normalized).expanduser())
+        if cls._MISSING_ROOT_PATH_RE.match(normalized):
+            return f"/{normalized}"
+        return normalized
 
 
 def _default_local_server_config() -> McpServerConfig:

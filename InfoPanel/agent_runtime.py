@@ -46,6 +46,8 @@ You are Monkey Butler, an assistant styled after JARVIS from Iron Man.
 - When using KiCad tools, verify the live backend state before board-editing work when that context is available.
 - If the user expects visible, real-time board updates, prefer checking KiCad UI / backend state and moving to IPC before describing placement as complete.
 - If components come from the schematic, make sure the schematic has been synced to the board before placement or routing.
+- For KiCad filesystem parameters, prefer absolute paths.
+- For simple power rails in KiCad schematics, prefer canonical symbols such as power:+5V and power:GND rather than inventing generic voltage-source symbols.
 Always respond as if you are a hyper-competent digital butler/engineer assisting the user.
 """
 
@@ -61,6 +63,9 @@ OPENAI_SERVER_ERROR_RETRY_MAX_DELAY = max(
 )
 OPENAI_SERVER_ERROR_RETRY_JITTER = max(
     0.0, float(os.getenv("TALOS_OPENAI_SERVER_ERROR_RETRY_JITTER", "0.25"))
+)
+OPENAI_SERVER_ERROR_RECOVERY_ATTEMPTS = max(
+    0, int(os.getenv("TALOS_OPENAI_SERVER_ERROR_RECOVERY_ATTEMPTS", "1"))
 )
 KICAD_TOOL_PREFIX = os.getenv("KICAD_MCP_TOOL_PREFIX", "kicad_").strip() or "kicad_"
 TOOL_OUTPUT_CHAR_LIMIT = max(256, int(os.getenv("TALOS_TOOL_OUTPUT_CHAR_LIMIT", "4000")))
@@ -93,6 +98,10 @@ KICAD_PREFERRED_TOOL_SUFFIXES = {
     "check_kicad_ui",
     "launch_kicad_ui",
     "get_backend_state",
+    "list_symbol_libraries",
+    "list_library_symbols",
+    "search_symbols",
+    "get_symbol_info",
     "add_schematic_component",
     "list_schematic_components",
     "annotate_schematic",
@@ -517,6 +526,120 @@ def _shape_tool_output(name: str, result: Any) -> str:
     return shaped_output
 
 
+def _tool_result_indicates_failure(raw_result: str) -> bool:
+    stripped = raw_result.strip()
+    if not stripped:
+        return False
+
+    lowered = stripped.lower()
+    if lowered.startswith("error calling ") or lowered.startswith("unknown function:"):
+        return True
+    if lowered.startswith("failed ") or lowered.startswith("failed to "):
+        return True
+
+    try:
+        parsed = json.loads(stripped)
+    except Exception:
+        return False
+
+    if isinstance(parsed, dict):
+        success = parsed.get("success")
+        if success is False:
+            return True
+        if success is True:
+            return False
+        if parsed.get("error") or parsed.get("errorDetails"):
+            return True
+    return False
+
+
+def _fallback_response_from_tool_error(
+    command: str,
+    tool_events: list[dict[str, Any]],
+    exc: Exception,
+) -> str:
+    if not tool_events:
+        return (
+            "The model backend failed after the tool call, and I do not have a usable KiCad result to report."
+        )
+
+    last_event = tool_events[-1]
+    tool_name = last_event.get("name", "the KiCad tool")
+    raw_result = " ".join(last_event.get("raw_result", "").split())
+    raw_result = _truncate_text(raw_result, 500)
+    tool_failed = bool(last_event.get("failed"))
+
+    if command and _is_kicad_request(command, [{"name": tool_name}]):
+        if tool_failed:
+            return (
+                f"The KiCad step failed in {tool_name}: {raw_result} "
+                "The follow-up call to OpenAI then hit a server-side 500, so I am surfacing the real tool failure instead. "
+                "Please retry with a valid KiCad symbol or path."
+            )
+        return (
+            f"The KiCad step completed in {tool_name}: {raw_result} "
+            "The follow-up call to OpenAI then hit a server-side 500 before the agent could continue. "
+            "Please retry the request from the current project state."
+        )
+
+    if tool_failed:
+        return (
+            f"The last tool call failed in {tool_name}: {raw_result} "
+            f"The follow-up model call then hit a server-side error: {_truncate_text(str(exc), 200)}"
+        )
+    return (
+        f"The last tool call completed in {tool_name}: {raw_result} "
+        f"The follow-up model call then hit a server-side error: {_truncate_text(str(exc), 200)}"
+    )
+
+
+def _summarize_recovery_events(tool_events: list[dict[str, Any]], limit: int = 6) -> str:
+    if not tool_events:
+        return "No prior tool calls were recorded."
+
+    selected = tool_events[-limit:]
+    parts: list[str] = []
+    for event in selected:
+        status = "failed" if event.get("failed") else "completed"
+        name = str(event.get("name") or "unknown_tool")
+        raw_result = " ".join(str(event.get("raw_result") or "").split())
+        raw_result = _truncate_text(raw_result, 240)
+        parts.append(f"{name} {status}: {raw_result}")
+    return " | ".join(parts)
+
+
+def _build_recovery_input_items(
+    command: str,
+    state_snapshot: str,
+    mcp_client: Any,
+    tool_defs: list[dict[str, Any]],
+    tool_events: list[dict[str, Any]],
+    recovery_attempt: int,
+) -> list[dict[str, Any]]:
+    input_items: list[dict[str, Any]] = []
+
+    context_message = _format_context(state_snapshot)
+    if context_message:
+        input_items.append({"role": "system", "content": context_message})
+
+    recovery_summary = _summarize_recovery_events(tool_events)
+    input_items.append(
+        {
+            "role": "system",
+            "content": (
+                "A previous OpenAI follow-up call failed with a transient server-side error "
+                f"after tool execution. Recovery attempt {recovery_attempt}. "
+                "Continue the same user request from the current tool state. "
+                "Do not repeat already-successful project creation or placement steps unless the current backend state shows they did not persist. "
+                f"Recent tool activity: {recovery_summary}"
+            ),
+        }
+    )
+    _maybe_add_kicad_preflight(input_items, mcp_client, tool_defs, command)
+    input_items.append({"role": "user", "content": command})
+    return input_items
+
+
 def _invoke_host_tool(mcp_client: Any, name: str, arguments: Any) -> str:
     parsed_arguments = _parse_function_arguments(arguments)
     if name == "list_mcp_resources":
@@ -539,8 +662,9 @@ def _invoke_host_tool(mcp_client: Any, name: str, arguments: Any) -> str:
     raise KeyError(name)
 
 
-def _collect_tool_outputs(response: Any, mcp_client: Any) -> list[dict[str, Any]]:
+def _collect_tool_outputs(response: Any, mcp_client: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     tool_outputs = []
+    tool_events: list[dict[str, Any]] = []
     for item in response.output:
         if item.type != "function_call":
             continue
@@ -557,6 +681,7 @@ def _collect_tool_outputs(response: Any, mcp_client: Any) -> list[dict[str, Any]
             result = f"Error calling {item.name}: {exc}"
 
         shaped_output = _shape_tool_output(item.name, result)
+        raw_result = str(result)
         tool_outputs.append(
             {
                 "type": "function_call_output",
@@ -564,8 +689,16 @@ def _collect_tool_outputs(response: Any, mcp_client: Any) -> list[dict[str, Any]
                 "output": shaped_output,
             }
         )
-        print(f"Function '{item.name}' executed with result: {_truncate_text(str(result), 600)}")
-    return tool_outputs
+        tool_events.append(
+            {
+                "name": item.name,
+                "raw_result": raw_result,
+                "output": shaped_output,
+                "failed": _tool_result_indicates_failure(raw_result),
+            }
+        )
+        print(f"Function '{item.name}' executed with result: {_truncate_text(raw_result, 600)}")
+    return tool_outputs, tool_events
 
 
 def run_command(
@@ -610,8 +743,12 @@ def run_command(
 
             response_text = ""
             rounds = 0
+            tool_events: list[dict[str, Any]] = []
+            recovery_attempts = 0
             while True:
-                tool_outputs = _collect_tool_outputs(response, mcp_client)
+                tool_outputs, recent_events = _collect_tool_outputs(response, mcp_client)
+                if recent_events:
+                    tool_events.extend(recent_events)
                 if not tool_outputs:
                     response_text = (response.output_text or "").strip()
                     _last_response_ids[session_id] = response.id
@@ -624,15 +761,47 @@ def run_command(
 
                 if benchmark:
                     benchmark.mark_stage("llm_followup_send")
-                response = _responses_create_with_retry(
-                    model=ai_model,
-                    instructions=indoctrination,
-                    tools=tool_defs,
-                    input=tool_outputs,
-                    previous_response_id=response.id,
-                    temperature=0.5,
-                    max_output_tokens=150,
-                )
+                try:
+                    response = _responses_create_with_retry(
+                        model=ai_model,
+                        instructions=indoctrination,
+                        tools=tool_defs,
+                        input=tool_outputs,
+                        previous_response_id=response.id,
+                        temperature=0.5,
+                        max_output_tokens=150,
+                    )
+                except Exception as exc:
+                    if not _is_server_error(exc):
+                        raise
+                    if recovery_attempts < OPENAI_SERVER_ERROR_RECOVERY_ATTEMPTS and tool_events:
+                        recovery_attempts += 1
+                        print(
+                            "OpenAI follow-up failed after tool execution; "
+                            f"attempting recovery {recovery_attempts}/"
+                            f"{OPENAI_SERVER_ERROR_RECOVERY_ATTEMPTS}."
+                        )
+                        recovery_input_items = _build_recovery_input_items(
+                            command,
+                            state_snapshot,
+                            mcp_client,
+                            tool_defs,
+                            tool_events,
+                            recovery_attempts,
+                        )
+                        response = _responses_create_with_retry(
+                            model=ai_model,
+                            instructions=indoctrination,
+                            tools=tool_defs,
+                            input=recovery_input_items,
+                            temperature=0.5,
+                            max_output_tokens=150,
+                        )
+                        continue
+
+                    response_text = _fallback_response_from_tool_error(command, tool_events, exc)
+                    _last_response_ids.pop(session_id, None)
+                    break
                 rounds += 1
 
             if benchmark:
