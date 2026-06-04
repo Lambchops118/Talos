@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 os.environ.setdefault("OPENAI_API_KEY", "test-key")
 
@@ -12,6 +14,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from talos.agent import runtime as agent_runtime
+from talos.memory import MemoryStore
 
 
 class FakeMcpClient:
@@ -136,6 +139,38 @@ class AgentRuntimeRecoveryTests(unittest.TestCase):
 
         self.assertEqual(mcp_client.retry_server_name, "kicad")
         self.assertIn("starting", result)
+
+    def test_host_tool_remembers_memory_fact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = MemoryStore(Path(tmpdir) / "memory.sqlite3")
+            with mock.patch.object(agent_runtime, "get_default_memory_store", return_value=store):
+                result = agent_runtime._invoke_host_tool(
+                    FakeMcpClient(),
+                    "remember_memory_fact",
+                    '{"scope": "session", "key": "tone", "value": "Keep replies compact.", "salience": 8}',
+                    session_id="text-session",
+                )
+
+            memory = store.get_prompt_memory("text-session", "tone", max_chars=2000)
+            store.close()
+
+        self.assertIn("Memory fact stored", result)
+        self.assertIn("[session:text-session] tone: Keep replies compact.", memory)
+
+    def test_runtime_prompt_instructions_include_mode_domain_and_memory(self) -> None:
+        instructions = agent_runtime._build_prompt_instructions(
+            "Place the KiCad LED on the board.",
+            "voice",
+            [{"name": "kicad_get_backend_state"}],
+            memory_block="User prefers concise KiCad updates.",
+            interaction_mode="voice",
+        )
+
+        self.assertIn("Base Soul Document", instructions)
+        self.assertIn("Voice Mode Overlay", instructions)
+        self.assertIn("KiCad Domain Overlay", instructions)
+        self.assertIn("Memory Context (Runtime Injected)", instructions)
+        self.assertIn("concise KiCad updates", instructions)
 
 
 if __name__ == "__main__":

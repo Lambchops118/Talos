@@ -9,18 +9,20 @@ from typing import Any
 
 import openai
 
-from talos.agent.prompts import MONKEY_BUTLER_PROMPT
+from talos.agent.prompting import DEFAULT_DOMAIN_OVERLAYS, PromptContext, build_instructions
 from talos.config import env_bool, env_float, env_int, load_environment, require_env
+from talos.memory import MemoryStore, get_default_memory_store
 from talos.mcp_client import get_local_mcp_client, shutdown_local_mcp_client
 
 
 load_environment()
 
 _client: openai.OpenAI | None = None
-indoctrination = MONKEY_BUTLER_PROMPT
 
 ai_model = os.getenv("OPENAI_VOICE_MODEL", "gpt-4o-mini")
 MAX_TOOL_CALL_ROUNDS = max(1, env_int("TALOS_MAX_TOOL_CALL_ROUNDS", 8))
+MEMORY_ENABLED = env_bool("TALOS_MEMORY_ENABLED", True)
+PROMPT_MEMORY_CHAR_LIMIT = max(0, env_int("TALOS_PROMPT_MEMORY_CHAR_LIMIT", 1600))
 OPENAI_SERVER_ERROR_RETRIES = max(0, env_int("TALOS_OPENAI_SERVER_ERROR_RETRIES", 2))
 OPENAI_SERVER_ERROR_RETRY_DELAY = max(
     0.0, env_float("TALOS_OPENAI_SERVER_ERROR_RETRY_DELAY", 1.5)
@@ -47,6 +49,16 @@ TOOL_OUTPUT_SUMMARY_PREVIEW_KEYS = max(
 
 _conversation_lock = threading.Lock()
 _last_response_ids: dict[str, str] = {}
+HOST_TOOL_NAMES = {
+    "list_mcp_resources",
+    "list_mcp_resource_templates",
+    "read_mcp_resource",
+    "list_mcp_server_status",
+    "list_mcp_tools",
+    "retry_mcp_server",
+    "remember_memory_fact",
+    "list_memory_facts",
+}
 
 KICAD_PREFERRED_TOOL_SUFFIXES = {
     "list_tool_categories",
@@ -219,6 +231,56 @@ def _resource_tool_definitions() -> list[dict[str, Any]]:
                 "additionalProperties": False,
             },
         },
+        {
+            "type": "function",
+            "name": "remember_memory_fact",
+            "description": (
+                "Persist a stable user, project, environment, or session fact for future TALOS prompt context. "
+                "Use this when the user explicitly asks you to remember something durable."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "scope": {
+                        "type": "string",
+                        "description": "Memory scope: user, project, global, or session. Defaults to user.",
+                    },
+                    "key": {
+                        "type": "string",
+                        "description": "Short stable key for the fact, such as preferred_response_style.",
+                    },
+                    "value": {
+                        "type": "string",
+                        "description": "The durable fact to remember.",
+                    },
+                    "salience": {
+                        "type": "integer",
+                        "description": "Importance from 1 to 10. Defaults to 5.",
+                    },
+                },
+                "required": ["key", "value"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "list_memory_facts",
+            "description": "List compact durable memory facts relevant to a query.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Optional search text for relevant facts.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum facts to return. Defaults to 8.",
+                    },
+                },
+                "additionalProperties": False,
+            },
+        },
     ]
 
 
@@ -298,6 +360,91 @@ def _build_tool_definitions(mcp_client: Any) -> list[dict[str, Any]]:
         tool_bytes = 0
     print(f"Tool definitions prepared: {len(tool_defs)} tools, {tool_bytes} bytes")
     return tool_defs
+
+
+def _normalize_interaction_mode(mode: str | None) -> str:
+    normalized = str(mode or "").strip().lower()
+    if normalized.startswith("voice"):
+        return "voice"
+    if normalized.startswith("text"):
+        return "text"
+    return "text"
+
+
+def _infer_interaction_mode(session_id: str) -> str:
+    normalized = str(session_id or "").strip().lower()
+    if normalized.startswith("voice"):
+        return "voice"
+    return "text"
+
+
+def _domain_overlays_for_command(command: str, tool_defs: list[dict[str, Any]]) -> tuple[str, ...]:
+    overlays = list(DEFAULT_DOMAIN_OVERLAYS)
+    if _is_kicad_request(command, tool_defs):
+        overlays.append("kicad")
+    return tuple(overlays)
+
+
+def _build_prompt_instructions(
+    command: str,
+    session_id: str,
+    tool_defs: list[dict[str, Any]],
+    *,
+    memory_block: str | None = None,
+    interaction_mode: str | None = None,
+) -> str:
+    mode = _normalize_interaction_mode(interaction_mode or _infer_interaction_mode(session_id))
+    context = PromptContext(
+        interaction_mode=mode,
+        domain_overlays=_domain_overlays_for_command(command, tool_defs),
+        memory_block=memory_block,
+    )
+    return build_instructions(context)
+
+
+def _get_memory_store() -> MemoryStore | None:
+    if not MEMORY_ENABLED:
+        return None
+    try:
+        return get_default_memory_store()
+    except Exception as exc:
+        print(f"TALOS memory unavailable: {_truncate_text(str(exc), 300)}")
+        return None
+
+
+def _get_prompt_memory(memory_store: MemoryStore | None, session_id: str, command: str) -> str | None:
+    if memory_store is None or PROMPT_MEMORY_CHAR_LIMIT <= 0:
+        return None
+    try:
+        return memory_store.get_prompt_memory(
+            session_id,
+            command,
+            max_chars=PROMPT_MEMORY_CHAR_LIMIT,
+        )
+    except Exception as exc:
+        print(f"TALOS memory retrieval failed: {_truncate_text(str(exc), 300)}")
+        return None
+
+
+def _record_memory_turn(
+    memory_store: MemoryStore | None,
+    session_id: str,
+    command: str,
+    response_text: str,
+    *,
+    interaction_mode: str,
+) -> None:
+    if memory_store is None:
+        return
+    try:
+        memory_store.record_turn(
+            session_id,
+            command,
+            response_text,
+            metadata={"interaction_mode": interaction_mode},
+        )
+    except Exception as exc:
+        print(f"TALOS memory write failed: {_truncate_text(str(exc), 300)}")
 
 
 def _format_context(snapshot: str) -> str | None:
@@ -655,7 +802,22 @@ def _build_recovery_input_items(
     return input_items
 
 
-def _invoke_host_tool(mcp_client: Any, name: str, arguments: Any) -> str:
+def _memory_scope_for_tool(scope: str, session_id: str) -> str:
+    normalized_scope = str(scope or "user").strip().lower()
+    if normalized_scope == "session":
+        return f"session:{session_id}"
+    if normalized_scope in {"user", "project", "global"}:
+        return normalized_scope
+    return normalized_scope or "user"
+
+
+def _invoke_host_tool(
+    mcp_client: Any,
+    name: str,
+    arguments: Any,
+    *,
+    session_id: str = "default",
+) -> str:
     parsed_arguments = _parse_function_arguments(arguments)
     if name == "list_mcp_resources":
         return json.dumps({"resources": mcp_client.list_resources(refresh=bool(parsed_arguments.get("refresh")))})
@@ -684,10 +846,62 @@ def _invoke_host_tool(mcp_client: Any, name: str, arguments: Any) -> str:
         server = parsed_arguments.get("server")
         server_name = str(server).strip() if server not in (None, "") else None
         return json.dumps({"servers": mcp_client.retry_server(server_name)})
+    if name == "remember_memory_fact":
+        memory_store = _get_memory_store()
+        if memory_store is None:
+            return json.dumps({"success": False, "message": "TALOS memory is disabled or unavailable."})
+
+        scope = _memory_scope_for_tool(str(parsed_arguments.get("scope") or "user"), session_id)
+        key = str(parsed_arguments.get("key") or "").strip()
+        value = str(parsed_arguments.get("value") or "").strip()
+        salience = int(parsed_arguments.get("salience") or 5)
+        memory_store.upsert_fact(
+            scope,
+            key,
+            value,
+            salience=salience,
+            source_session_id=session_id,
+        )
+        return json.dumps(
+            {
+                "success": True,
+                "scope": scope,
+                "key": key,
+                "message": "Memory fact stored.",
+            }
+        )
+    if name == "list_memory_facts":
+        memory_store = _get_memory_store()
+        if memory_store is None:
+            return json.dumps({"success": False, "facts": []})
+
+        query = str(parsed_arguments.get("query") or "")
+        limit = int(parsed_arguments.get("limit") or 8)
+        facts = memory_store.search_facts(query, limit=limit)
+        return json.dumps(
+            {
+                "success": True,
+                "facts": [
+                    {
+                        "scope": fact.scope,
+                        "key": fact.key,
+                        "value": fact.value,
+                        "salience": fact.salience,
+                        "updated_at": fact.updated_at,
+                    }
+                    for fact in facts
+                ],
+            }
+        )
     raise KeyError(name)
 
 
-def _collect_tool_outputs(response: Any, mcp_client: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def _collect_tool_outputs(
+    response: Any,
+    mcp_client: Any,
+    *,
+    session_id: str = "default",
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     tool_outputs = []
     tool_events: list[dict[str, Any]] = []
     for item in response.output:
@@ -696,15 +910,13 @@ def _collect_tool_outputs(response: Any, mcp_client: Any) -> tuple[list[dict[str
 
         print(f"FUNCTION CALL DETECTED: {item.name} with args {item.arguments}")
         try:
-            if item.name in {
-                "list_mcp_resources",
-                "list_mcp_resource_templates",
-                "read_mcp_resource",
-                "list_mcp_server_status",
-                "list_mcp_tools",
-                "retry_mcp_server",
-            }:
-                result = _invoke_host_tool(mcp_client, item.name, item.arguments)
+            if item.name in HOST_TOOL_NAMES:
+                result = _invoke_host_tool(
+                    mcp_client,
+                    item.name,
+                    item.arguments,
+                    session_id=session_id,
+                )
             else:
                 result = mcp_client.call_tool(item.name, item.arguments)
         except KeyError:
@@ -738,6 +950,7 @@ def run_command(
     state_snapshot: str = "no recent status",
     *,
     session_id: str = "default",
+    interaction_mode: str | None = None,
     benchmark: Any = None,
 ) -> str:
     if benchmark:
@@ -745,6 +958,22 @@ def run_command(
 
     mcp_client = get_local_mcp_client()
     tool_defs = _build_tool_definitions(mcp_client)
+    mode = _normalize_interaction_mode(interaction_mode or _infer_interaction_mode(session_id))
+    memory_store = _get_memory_store()
+    if memory_store is not None:
+        try:
+            memory_store.record_session(session_id, metadata={"interaction_mode": mode})
+        except Exception as exc:
+            print(f"TALOS memory session write failed: {_truncate_text(str(exc), 300)}")
+            memory_store = None
+    memory_block = _get_prompt_memory(memory_store, session_id, command)
+    instructions = _build_prompt_instructions(
+        command,
+        session_id,
+        tool_defs,
+        memory_block=memory_block,
+        interaction_mode=mode,
+    )
 
     input_items: list[dict[str, Any]] = []
     context_message = _format_context(state_snapshot)
@@ -757,7 +986,7 @@ def run_command(
         with _conversation_lock:
             request_kwargs: dict[str, Any] = {
                 "model": ai_model,
-                "instructions": indoctrination,
+                "instructions": instructions,
                 "tools": tool_defs,
                 "input": input_items,
                 "temperature": 0.5,
@@ -778,7 +1007,11 @@ def run_command(
             tool_events: list[dict[str, Any]] = []
             recovery_attempts = 0
             while True:
-                tool_outputs, recent_events = _collect_tool_outputs(response, mcp_client)
+                tool_outputs, recent_events = _collect_tool_outputs(
+                    response,
+                    mcp_client,
+                    session_id=session_id,
+                )
                 if recent_events:
                     tool_events.extend(recent_events)
                 if not tool_outputs:
@@ -796,7 +1029,7 @@ def run_command(
                 try:
                     response = _responses_create_with_retry(
                         model=ai_model,
-                        instructions=indoctrination,
+                        instructions=instructions,
                         tools=tool_defs,
                         input=tool_outputs,
                         previous_response_id=response.id,
@@ -823,7 +1056,7 @@ def run_command(
                         )
                         response = _responses_create_with_retry(
                             model=ai_model,
-                            instructions=indoctrination,
+                            instructions=instructions,
                             tools=tool_defs,
                             input=recovery_input_items,
                             temperature=0.5,
@@ -845,6 +1078,13 @@ def run_command(
         raise
 
     response_text = response_text.replace("Monkey Butler:", "").strip()
+    _record_memory_turn(
+        memory_store,
+        session_id,
+        command,
+        response_text,
+        interaction_mode=mode,
+    )
     if benchmark:
         benchmark.set_response_text(response_text)
     return response_text

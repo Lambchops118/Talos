@@ -191,6 +191,37 @@ To add a new MCP tool domain:
 4. Optionally create a dedicated `talos/mcp_servers/<domain>_server.py`.
 5. Optionally mount that server in `talos/mcp_http_app.py` if you want HTTP access.
 
+### Personality And Prompt Assembly
+
+TALOS assembles model instructions from versioned, human-editable prompt documents instead of a single hardcoded runtime string.
+
+- `talos/personality/monkey_butler.md` contains the stable Monkey Butler soul document.
+- `talos/personality/overlays/voice.md` and `text.md` keep interaction-mode behavior separate.
+- `talos/personality/overlays/kicad.md`, `filesystem.md`, and `tool_usage.md` hold domain and operating guidance.
+- `talos/agent/prompting.py` loads those pieces and injects runtime memory/context blocks without editing the soul document.
+
+Set `TALOS_PERSONALITY_PATH` to point at a different base soul document. The built-in overlays still apply unless the assembly code is configured with alternate overlay paths.
+
+### Durable Memory
+
+TALOS includes a SQLite-backed memory store in `talos/memory/store.py`. By default it writes to `db/talos_memory.sqlite3`, which is ignored by git because it can contain private user and session facts.
+
+The store keeps structured records for:
+
+- sessions
+- messages
+- durable facts
+- compact summaries
+
+At request time, the agent retrieves a compact prompt-ready memory block from summaries and relevant facts rather than scanning raw full history. After a completed turn, the runtime stores the user and assistant messages and refreshes the active session summary.
+
+Useful memory settings:
+
+- `TALOS_MEMORY_ENABLED=1` enables the runtime memory integration.
+- `TALOS_MEMORY_DB_PATH=/absolute/path/to/talos_memory.sqlite3` overrides the SQLite location.
+- `TALOS_MEMORY_PROJECT_ID=Talos` selects the project summary key used for prompt retrieval.
+- `TALOS_PROMPT_MEMORY_CHAR_LIMIT=1600` bounds prompt memory injection.
+
 ### Split Agent And Voice Worker
 
 TALOS can now run as two separate processes:

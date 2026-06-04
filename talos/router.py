@@ -6,11 +6,19 @@ from talos.messages import Message, StatusPayload, TextPayload, VoicePayload
 from talos.state_store import StateStore
 
 
-def _run_agent_command(command: str, gui_queue: queue.Queue, snapshot: str, *, session_id: str) -> str:
+def _run_agent_command(
+    command: str,
+    gui_queue: queue.Queue,
+    snapshot: str,
+    *,
+    session_id: str,
+    interaction_mode: str = "text",
+) -> str:
     response_text = agent_runtime.run_command(
         command,
         snapshot,
         session_id=session_id,
+        interaction_mode=interaction_mode,
     )
     gui_queue.put(("VOICE_CMD", command, response_text))
     return response_text
@@ -35,13 +43,25 @@ def router_loop(central_queue: queue.Queue, gui_queue: queue.Queue, stop_signal:
         elif msg.type == "voice_cmd":
             vp: VoicePayload = msg.payload
             snapshot = state.snapshot()
-            _run_agent_command(vp.command, gui_queue, snapshot, session_id="voice")
+            _run_agent_command(
+                vp.command,
+                gui_queue,
+                snapshot,
+                session_id="voice",
+                interaction_mode="voice",
+            )
 
         elif msg.type == "text_cmd":
             tp: TextPayload = msg.payload
             snapshot = state.snapshot()
             try:
-                response_text = _run_agent_command(tp.command, gui_queue, snapshot, session_id=tp.session_id)
+                response_text = _run_agent_command(
+                    tp.command,
+                    gui_queue,
+                    snapshot,
+                    session_id=tp.session_id,
+                    interaction_mode="text",
+                )
                 if tp.reply_queue is not None:
                     tp.reply_queue.put(
                         {
@@ -70,6 +90,7 @@ def router_loop(central_queue: queue.Queue, gui_queue: queue.Queue, stop_signal:
                     gui_queue,
                     snapshot,
                     session_id="events",
+                    interaction_mode="text",
                 )
 
         elif msg.type == "ui":
