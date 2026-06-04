@@ -147,6 +147,7 @@ Notes:
 - Once `TALOS_MCP_SERVERS` is set, it replaces the default built-in MCP list. Include your local TALOS server explicitly if you still want local home-automation tools.
 - `auth_token_env` tells TALOS which environment variable contains a bearer token for that remote MCP server.
 - `headers` can also be provided directly in the JSON config if a server needs custom headers.
+- Remote MCP entries may also set `tls_verify: false` to disable certificate verification for that one server, or `tls_ca_bundle` to point at a custom CA bundle when Python cannot validate the server certificate chain on the current machine.
 - Use `tool_prefix` when a remote server might expose names that collide with local tools.
 - TALOS now supports multi-step tool execution loops. Set `TALOS_MAX_TOOL_CALL_ROUNDS` in `.env` if you need to raise or lower the default limit of `8`.
 - Resource reads are text-first. Binary resources are surfaced with MIME metadata and a base64 preview so the model can reason about what is available without flooding context.

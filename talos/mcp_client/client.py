@@ -45,6 +45,8 @@ class McpServerConfig:
     headers: dict[str, str] = field(default_factory=dict)
     auth_token: str | None = None
     auth_token_env: str | None = None
+    tls_verify: bool = True
+    tls_ca_bundle: str | None = None
     tool_prefix: str = ""
     cwd: str | None = None
     env: dict[str, str] = field(default_factory=dict)
@@ -203,10 +205,14 @@ class _ServerConnection:
                         "'streamable_http_client' transport and httpx."
                     ) from exc
 
+                verify: bool | str = self.config.tls_verify
+                if self.config.tls_ca_bundle:
+                    verify = self.config.tls_ca_bundle
                 http_client = httpx.AsyncClient(
                     headers=self._resolved_headers(),
                     follow_redirects=True,
                     timeout=self.config.timeout_seconds,
+                    verify=verify,
                 )
                 managed_http_client = await stack.enter_async_context(http_client)
                 streams = await stack.enter_async_context(
@@ -224,7 +230,7 @@ class _ServerConnection:
             self._session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
             await self._session.initialize()
             self._exit_stack = stack
-        except Exception:
+        except BaseException:
             await stack.aclose()
             raise
 
@@ -760,6 +766,12 @@ class LocalMcpClient:
                     await pending
                     self._mark_server_healthy(server_name)
                     return True
+                except asyncio.CancelledError as exc:
+                    await self._mark_server_failed(
+                        server_name,
+                        self._startup_cancelled_error(server_name, exc),
+                    )
+                    return False
                 except Exception as exc:
                     await self._mark_server_failed(server_name, exc)
                     return False
@@ -814,6 +826,14 @@ class LocalMcpClient:
             await task
             self._mark_server_healthy(server_name)
             return True
+        except asyncio.CancelledError as exc:
+            if task.done():
+                await self._mark_server_failed(
+                    server_name,
+                    self._startup_cancelled_error(server_name, exc),
+                )
+                return False
+            raise
         except Exception as exc:
             await self._mark_server_failed(server_name, exc)
             return False
@@ -823,6 +843,14 @@ class LocalMcpClient:
             self._pending_starts.pop(server_name, None)
         try:
             task.result()
+        except asyncio.CancelledError as exc:
+            asyncio.create_task(
+                self._mark_server_failed(
+                    server_name,
+                    self._startup_cancelled_error(server_name, exc),
+                )
+            )
+            return
         except Exception as exc:
             asyncio.create_task(self._mark_server_failed(server_name, exc))
             return
@@ -858,8 +886,12 @@ class LocalMcpClient:
         connection = self._connections[server_name]
         try:
             await connection.start()
-        except asyncio.CancelledError:
-            raise
+        except asyncio.CancelledError as exc:
+            await self._mark_server_failed(
+                server_name,
+                self._startup_cancelled_error(server_name, exc),
+            )
+            return
         except Exception as exc:
             await self._mark_server_failed(server_name, exc)
             return
@@ -873,6 +905,17 @@ class LocalMcpClient:
         self._tool_cache = None
         self._resource_cache = None
         self._resource_template_cache = None
+
+    @staticmethod
+    def _startup_cancelled_error(server_name: str, exc: BaseException) -> RuntimeError:
+        detail = str(exc).strip()
+        if detail:
+            return RuntimeError(
+                f"MCP server '{server_name}' startup was cancelled during initialization: {detail}"
+            )
+        return RuntimeError(
+            f"MCP server '{server_name}' startup was cancelled during initialization."
+        )
 
     def _deferred_owner_for_tool(self, exposed_name: str) -> str | None:
         """Resolve which deferred provider owns a (possibly unexposed) tool.
@@ -1437,6 +1480,9 @@ def _load_mcp_server_configs() -> list[McpServerConfig]:
             raise ValueError(f"TALOS_MCP_SERVERS entry '{name}' has non-object 'env'.")
 
         timeout_seconds = item.get("timeout_seconds", 30.0)
+        tls_verify = _optional_bool(item.get("tls_verify"))
+        if tls_verify is None:
+            tls_verify = True
         configs.append(
             McpServerConfig(
                 name=name,
@@ -1447,6 +1493,8 @@ def _load_mcp_server_configs() -> list[McpServerConfig]:
                 headers={str(key): str(value) for key, value in headers.items()},
                 auth_token=_optional_str(item.get("auth_token")),
                 auth_token_env=_optional_str(item.get("auth_token_env")),
+                tls_verify=tls_verify,
+                tls_ca_bundle=_optional_str(item.get("tls_ca_bundle")),
                 tool_prefix=str(item.get("tool_prefix") or ""),
                 cwd=_optional_str(item.get("cwd")),
                 env={str(key): str(value) for key, value in env.items()},
@@ -1466,6 +1514,20 @@ def _optional_str(value: Any) -> str | None:
     if value in (None, ""):
         return None
     return str(value)
+
+
+def _optional_bool(value: Any) -> bool | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    raise ValueError(f"Expected boolean-like value, got {value!r}.")
 
 
 _shared_client: LocalMcpClient | None = None

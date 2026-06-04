@@ -244,6 +244,33 @@ class LocalMcpClientResourceTests(unittest.TestCase):
         self.assertIn("quarantined", str(timed_out_status[0]["last_error"]))
         self.assertEqual(completed_status[0]["status"], "healthy")
 
+    def test_start_cancellation_marks_server_degraded_instead_of_raising(self) -> None:
+        async def run_case() -> list[dict[str, object]]:
+            configs = [
+                local_mcp_client.McpServerConfig(
+                    name="cancelled-start",
+                    transport="stdio",
+                    command="node",
+                )
+            ]
+            client = TestableLocalMcpClient(configs, reconnect_backoff_seconds=0)
+            connection = FakeConnection(
+                name="cancelled-start",
+                start_error=asyncio.CancelledError(),
+            )
+            connection.is_running = False
+            client._connections = {"cancelled-start": connection}
+
+            started = await client._async_ensure_started("cancelled-start")
+            self.assertFalse(started)
+            await asyncio.sleep(0)
+            return client.list_server_status()
+
+        status = asyncio.run(run_case())
+
+        self.assertEqual(status[0]["status"], "degraded")
+        self.assertIn("startup was cancelled", str(status[0]["last_error"]))
+
     def test_status_and_tool_refresh_do_not_retry_degraded_server(self) -> None:
         configs = [local_mcp_client.McpServerConfig(name="broken", transport="stdio", command="node")]
         connection = FakeConnection(name="broken", start_error=RuntimeError("still down"))
@@ -381,6 +408,26 @@ class LocalMcpClientResourceTests(unittest.TestCase):
         self.assertTrue(configs[1].args[0].endswith("dist/index.js"))
         self.assertEqual(configs[1].env["PYTHONPATH"], "/Applications/KiCad/site-packages")
         self.assertEqual(configs[1].tool_prefix, "kicad_")
+
+    def test_load_mcp_server_configs_parses_remote_tls_options(self) -> None:
+        raw = json.dumps(
+            [
+                {
+                    "name": "remote",
+                    "transport": "streamable_http",
+                    "url": "https://example.com/mcp",
+                    "tls_verify": False,
+                    "tls_ca_bundle": "/tmp/custom-ca.pem",
+                }
+            ]
+        )
+        with patch.dict(os.environ, {"TALOS_MCP_SERVERS": raw}, clear=False):
+            configs = local_mcp_client._load_mcp_server_configs()
+
+        self.assertEqual(len(configs), 1)
+        self.assertEqual(configs[0].name, "remote")
+        self.assertFalse(configs[0].tls_verify)
+        self.assertEqual(configs[0].tls_ca_bundle, "/tmp/custom-ca.pem")
 
     def test_kicad_tool_call_normalizes_missing_root_paths(self) -> None:
         configs = [local_mcp_client.McpServerConfig(name="kicad", transport="stdio", command="node")]
