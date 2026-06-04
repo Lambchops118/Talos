@@ -279,13 +279,27 @@ class LocalMcpClientResourceTests(unittest.TestCase):
         client._connections = {
             "healthy": FakeConnection(
                 name="healthy",
-                tools=[Obj(name="ping", description="Ping", inputSchema={"type": "object"})],
+                tools=[
+                    Obj(
+                        name="ping",
+                        description="Ping",
+                        inputSchema={
+                            "type": "object",
+                            "properties": {"target": {"type": "string"}},
+                        },
+                    )
+                ],
             )
         }
 
         inventory = client.list_tool_inventory(refresh=True)
 
         self.assertEqual(inventory["tools"][0]["name"], "ping")
+        self.assertEqual(inventory["tools"][0]["server"], "healthy")
+        self.assertEqual(inventory["tools"][0]["rawName"], "ping")
+        self.assertEqual(inventory["tools"][0]["parameters"], ["target"])
+        self.assertNotIn("inputSchema", inventory["tools"][0])
+        self.assertEqual(inventory["tool_count"], 1)
         self.assertEqual(inventory["servers"][0]["status"], "healthy")
 
     def test_list_resources_and_templates_include_server_metadata(self) -> None:

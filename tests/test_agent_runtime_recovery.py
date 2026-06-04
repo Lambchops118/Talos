@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -65,6 +66,32 @@ class AgentRuntimeRecoveryTests(unittest.TestCase):
         self.assertTrue(
             agent_runtime._tool_result_indicates_failure("Error calling kicad_add: broken")
         )
+
+    def test_list_mcp_tools_output_preserves_tool_names(self) -> None:
+        raw_output = {
+            "tool_count": 2,
+            "tools": [
+                {
+                    "name": "kicad_list_schematic_components",
+                    "server": "kicad",
+                    "rawName": "list_schematic_components",
+                    "parameters": ["schematicPath"],
+                },
+                {
+                    "name": "kicad_delete_schematic_component",
+                    "server": "kicad",
+                    "rawName": "delete_schematic_component",
+                    "parameters": ["schematicPath", "reference"],
+                },
+            ],
+            "servers": [{"name": "kicad", "status": "healthy"}],
+        }
+
+        shaped = agent_runtime._shape_tool_output("list_mcp_tools", json.dumps(raw_output))
+
+        self.assertIn("kicad_delete_schematic_component", shaped)
+        self.assertIn("delete_schematic_component", shaped)
+        self.assertNotIn('"summary"', shaped)
 
     def test_fallback_message_distinguishes_successful_tool_from_failed_tool(self) -> None:
         success_events = [
@@ -171,6 +198,18 @@ class AgentRuntimeRecoveryTests(unittest.TestCase):
         self.assertIn("KiCad Domain Overlay", instructions)
         self.assertIn("Memory Context (Runtime Injected)", instructions)
         self.assertIn("concise KiCad updates", instructions)
+
+    def test_runtime_prompt_instructions_include_extra_context(self) -> None:
+        instructions = agent_runtime._build_prompt_instructions(
+            "What is the status?",
+            "main-pc",
+            [],
+            extra_context="Latest job: job_123 succeeded.",
+            interaction_mode="text",
+        )
+
+        self.assertIn("Additional Runtime Context", instructions)
+        self.assertIn("Latest job: job_123 succeeded.", instructions)
 
 
 if __name__ == "__main__":

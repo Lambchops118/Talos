@@ -29,6 +29,7 @@ class TextPayload:
     session_id: str
     source: str = "text"
     reply_queue: Optional[Any] = None
+    requested_mode: str = "auto"
 
 @dataclass
 class EventPayload:

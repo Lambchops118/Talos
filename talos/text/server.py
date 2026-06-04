@@ -9,9 +9,11 @@ from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
+from urllib.parse import parse_qs, unquote, urlparse
 
 from talos.agent import runtime as agent_runtime
 from talos.config import env_bool, load_environment
+from talos.jobs import get_default_job_store
 from talos.messages import Message, TextPayload
 
 
@@ -21,6 +23,21 @@ DEFAULT_ALLOWED_NETWORKS = [
     "100.64.0.0/10",
     "fd7a:115c:a1e0::/48",
 ]
+
+
+def _requested_mode_from_body(body: dict[str, Any]) -> str:
+    if body.get("background") is True:
+        return "background"
+    if body.get("background") is False:
+        return "foreground"
+    return str(body.get("mode") or "auto").strip() or "auto"
+
+
+def _query_int(query: dict[str, list[str]], key: str, default: int) -> int:
+    try:
+        return int((query.get(key) or [default])[0])
+    except (TypeError, ValueError):
+        return default
 
 
 @dataclass(frozen=True)
@@ -84,11 +101,33 @@ class TextAgentRequestHandler(BaseHTTPRequestHandler):
         if not self._authorize_request(require_token=False):
             return
 
-        if self.path == "/" or self.path.startswith("/?"):
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        if path == "/":
             self._write_html(HTTPStatus.OK, self._chat_page())
             return
-        if self.path == "/health":
+        if path == "/health":
             self._write_json(HTTPStatus.OK, {"ok": True, "status": "healthy"})
+            return
+        if path.startswith("/jobs/"):
+            if not self._authorize_request(require_token=True):
+                return
+            self._handle_get_job(unquote(path.removeprefix("/jobs/")))
+            return
+        if path.startswith("/sessions/") and path.endswith("/jobs"):
+            if not self._authorize_request(require_token=True):
+                return
+            session_id = unquote(path.removeprefix("/sessions/")[: -len("/jobs")])
+            query = parse_qs(parsed.query)
+            self._handle_get_session_jobs(session_id, query)
+            return
+        if path.startswith("/sessions/") and path.endswith("/events"):
+            if not self._authorize_request(require_token=True):
+                return
+            session_id = unquote(path.removeprefix("/sessions/")[: -len("/events")])
+            query = parse_qs(parsed.query)
+            self._handle_get_session_events(session_id, query)
             return
         self._write_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "Not found"})
 
@@ -166,6 +205,7 @@ class TextAgentRequestHandler(BaseHTTPRequestHandler):
 
         session_id = str(body.get("session_id") or f"text:{self.client_address[0]}").strip()
         source = str(body.get("source") or "http").strip()
+        requested_mode = _requested_mode_from_body(body)
 
         reply_queue: queue.Queue = queue.Queue(maxsize=1)
         self.server.central_queue.put(
@@ -176,6 +216,7 @@ class TextAgentRequestHandler(BaseHTTPRequestHandler):
                     session_id=session_id,
                     source=source,
                     reply_queue=reply_queue,
+                    requested_mode=requested_mode,
                 ),
             )
         )
@@ -199,6 +240,47 @@ class TextAgentRequestHandler(BaseHTTPRequestHandler):
 
         status = HTTPStatus.OK if result.get("ok") else HTTPStatus.INTERNAL_SERVER_ERROR
         self._write_json(status, result)
+
+    def _handle_get_job(self, job_id: str) -> None:
+        if not job_id:
+            self._write_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Missing job id."})
+            return
+        job = get_default_job_store().get_job(job_id)
+        if job is None:
+            self._write_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "Job not found.", "job_id": job_id})
+            return
+        self._write_json(HTTPStatus.OK, {"ok": True, "job": job.to_dict()})
+
+    def _handle_get_session_jobs(self, session_id: str, query: dict[str, list[str]]) -> None:
+        if not session_id:
+            self._write_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Missing session id."})
+            return
+        limit = _query_int(query, "limit", 25)
+        jobs = get_default_job_store().list_session_jobs(session_id, limit=limit)
+        self._write_json(
+            HTTPStatus.OK,
+            {"ok": True, "session_id": session_id, "jobs": [job.to_dict() for job in jobs]},
+        )
+
+    def _handle_get_session_events(self, session_id: str, query: dict[str, list[str]]) -> None:
+        if not session_id:
+            self._write_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "Missing session id."})
+            return
+        after_id = _query_int(query, "after_id", 0)
+        limit = _query_int(query, "limit", 50)
+        events = get_default_job_store().list_session_events(
+            session_id,
+            after_id=after_id,
+            limit=limit,
+        )
+        self._write_json(
+            HTTPStatus.OK,
+            {
+                "ok": True,
+                "session_id": session_id,
+                "events": [event.to_dict() for event in events],
+            },
+        )
 
     def _handle_reset_session(self) -> None:
         try:
@@ -397,7 +479,8 @@ class TextAgentRequestHandler(BaseHTTPRequestHandler):
           session_id: session.value.trim() || "browser-session",
           source: "browser",
         });
-        addMessage("agent", data.response || "");
+        const suffix = data.mode === "background" && data.job_id ? `\nJob ID: ${data.job_id}` : "";
+        addMessage("agent", `${data.response || ""}${suffix}`);
       } catch (error) {
         addMessage("error", error.message);
       }

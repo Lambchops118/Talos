@@ -371,8 +371,23 @@ class LocalMcpClient:
 
     def list_tool_inventory(self, refresh: bool = False) -> dict[str, Any]:
         tools = self.list_tools(refresh=refresh)
+        compact_tools: list[dict[str, Any]] = []
+        for tool in tools:
+            name = str(tool.get("name") or "")
+            server_name, raw_name = self._tool_routes.get(name, ("", name))
+            schema = tool.get("inputSchema")
+            properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
+            compact_tools.append(
+                {
+                    "name": name,
+                    "server": server_name,
+                    "rawName": raw_name,
+                    "parameters": list(properties.keys()) if isinstance(properties, dict) else [],
+                }
+            )
         return {
-            "tools": tools,
+            "tool_count": len(compact_tools),
+            "tools": compact_tools,
             "servers": self.list_server_status(),
         }
 
@@ -1084,6 +1099,9 @@ def _optional_kicad_server_config() -> McpServerConfig | None:
     for source_key, target_key in (
         ("KICAD_PYTHONPATH", "PYTHONPATH"),
         ("KICAD_PYTHON", "KICAD_PYTHON"),
+        ("KICAD_BACKEND", "KICAD_BACKEND"),
+        ("KICAD_READY_TIMEOUT_MS", "KICAD_READY_TIMEOUT_MS"),
+        ("KICAD_WARMUP_TIMEOUT_MS", "KICAD_WARMUP_TIMEOUT_MS"),
         ("KICAD_MCP_DEV", "KICAD_MCP_DEV"),
     ):
         value = os.getenv(source_key, "").strip()
@@ -1098,7 +1116,7 @@ def _optional_kicad_server_config() -> McpServerConfig | None:
         cwd=str(cwd),
         env=env,
         tool_prefix=os.getenv("KICAD_MCP_TOOL_PREFIX", "kicad_").strip(),
-        timeout_seconds=float(os.getenv("KICAD_MCP_TIMEOUT", "60")),
+        timeout_seconds=float(os.getenv("KICAD_MCP_TIMEOUT", "600")),
     )
 
 

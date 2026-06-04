@@ -61,15 +61,46 @@ def request_json(
         raise RuntimeError(f"Connection error: {exc.reason}") from exc
 
 
-def send_message(
+def get_json(
+    base_url: str,
+    path: str,
+    token: str = DEFAULT_TOKEN,
+    timeout: float | None = DEFAULT_TIMEOUT,
+) -> dict:
+    request = urllib.request.Request(build_url(base_url, path), method="GET")
+    if token:
+        request.add_header("Authorization", f"Bearer {token}")
+
+    resolved_timeout = _normalize_timeout(timeout)
+    try:
+        if resolved_timeout is None:
+            response_context = urllib.request.urlopen(request)
+        else:
+            response_context = urllib.request.urlopen(request, timeout=resolved_timeout)
+        with response_context as response:
+            raw = response.read().decode("utf-8")
+            body = json.loads(raw) if raw else {}
+            if not isinstance(body, dict):
+                raise RuntimeError("Server returned a non-object JSON payload.")
+            return body
+    except urllib.error.HTTPError as exc:
+        body_text = exc.read().decode("utf-8", errors="replace")
+        message = body_text or str(exc)
+        raise RuntimeError(f"HTTP {exc.code}: {message}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"Connection error: {exc.reason}") from exc
+
+
+def send_message_payload(
     message: str,
     *,
     session_id: str,
     source: str,
+    mode: str = "auto",
     base_url: str = DEFAULT_URL,
     token: str = DEFAULT_TOKEN,
     timeout: float | None = DEFAULT_TIMEOUT,
-) -> str:
+) -> dict:
     body = request_json(
         base_url,
         "/chat",
@@ -77,13 +108,79 @@ def send_message(
             "message": message,
             "session_id": session_id,
             "source": source,
+            "mode": mode,
         },
         token=token,
         timeout=timeout,
     )
     if not body.get("ok"):
         raise RuntimeError(body.get("error", "Unknown server error"))
+    return body
+
+
+def send_message(
+    message: str,
+    *,
+    session_id: str,
+    source: str,
+    mode: str = "auto",
+    base_url: str = DEFAULT_URL,
+    token: str = DEFAULT_TOKEN,
+    timeout: float | None = DEFAULT_TIMEOUT,
+) -> str:
+    body = send_message_payload(
+        message,
+        session_id=session_id,
+        source=source,
+        mode=mode,
+        base_url=base_url,
+        token=token,
+        timeout=timeout,
+    )
     return str(body.get("response", "")).strip()
+
+
+def get_job(
+    job_id: str,
+    *,
+    base_url: str = DEFAULT_URL,
+    token: str = DEFAULT_TOKEN,
+    timeout: float | None = DEFAULT_TIMEOUT,
+) -> dict:
+    body = get_json(base_url, f"/jobs/{urllib.parse.quote(job_id)}", token=token, timeout=timeout)
+    if not body.get("ok"):
+        raise RuntimeError(body.get("error", "Unknown server error"))
+    return body
+
+
+def list_session_jobs(
+    session_id: str,
+    *,
+    base_url: str = DEFAULT_URL,
+    token: str = DEFAULT_TOKEN,
+    timeout: float | None = DEFAULT_TIMEOUT,
+) -> dict:
+    quoted = urllib.parse.quote(session_id)
+    body = get_json(base_url, f"/sessions/{quoted}/jobs", token=token, timeout=timeout)
+    if not body.get("ok"):
+        raise RuntimeError(body.get("error", "Unknown server error"))
+    return body
+
+
+def list_session_events(
+    session_id: str,
+    *,
+    after_id: int = 0,
+    base_url: str = DEFAULT_URL,
+    token: str = DEFAULT_TOKEN,
+    timeout: float | None = DEFAULT_TIMEOUT,
+) -> dict:
+    quoted = urllib.parse.quote(session_id)
+    path = f"/sessions/{quoted}/events?after_id={int(after_id)}"
+    body = get_json(base_url, path, token=token, timeout=timeout)
+    if not body.get("ok"):
+        raise RuntimeError(body.get("error", "Unknown server error"))
+    return body
 
 
 def reset_session(

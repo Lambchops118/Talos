@@ -20,8 +20,9 @@ load_environment()
 _client: openai.OpenAI | None = None
 
 ai_model = os.getenv("OPENAI_VOICE_MODEL", "gpt-4o-mini")
+ROUTER_MODEL = os.getenv("TALOS_ROUTER_MODEL", ai_model)
 MAX_TOOL_CALL_ROUNDS = max(1, env_int("TALOS_MAX_TOOL_CALL_ROUNDS", 8))
-MEMORY_ENABLED = env_bool("TALOS_MEMORY_ENABLED", True)
+MEMORY_ENABLED = env_bool("TALOS_MEMORY_ENABLED", False)
 PROMPT_MEMORY_CHAR_LIMIT = max(0, env_int("TALOS_PROMPT_MEMORY_CHAR_LIMIT", 1600))
 OPENAI_SERVER_ERROR_RETRIES = max(0, env_int("TALOS_OPENAI_SERVER_ERROR_RETRIES", 2))
 OPENAI_SERVER_ERROR_RETRY_DELAY = max(
@@ -47,7 +48,8 @@ TOOL_OUTPUT_SUMMARY_PREVIEW_KEYS = max(
     1, env_int("TALOS_TOOL_OUTPUT_SUMMARY_PREVIEW_KEYS", 12)
 )
 
-_conversation_lock = threading.Lock()
+_conversation_state_lock = threading.Lock()
+_conversation_locks: dict[str, threading.Lock] = {}
 _last_response_ids: dict[str, str] = {}
 HOST_TOOL_NAMES = {
     "list_mcp_resources",
@@ -82,6 +84,11 @@ KICAD_PREFERRED_TOOL_SUFFIXES = {
     "get_symbol_info",
     "add_schematic_component",
     "list_schematic_components",
+    "get_schematic_component",
+    "edit_schematic_component",
+    "delete_schematic_component",
+    "move_schematic_component",
+    "rotate_schematic_component",
     "annotate_schematic",
     "connect_passthrough",
     "connect_to_net",
@@ -371,6 +378,51 @@ def _normalize_interaction_mode(mode: str | None) -> str:
     return "text"
 
 
+def _normalize_runtime_lane(lane: str | None) -> str:
+    normalized = str(lane or "").strip().lower()
+    if normalized in {"background", "job", "worker"}:
+        return "background"
+    return "foreground"
+
+
+def _response_thread_key(session_id: str, runtime_lane: str | None) -> str:
+    lane = _normalize_runtime_lane(runtime_lane)
+    return f"{lane}:{str(session_id or 'default').strip() or 'default'}"
+
+
+def _get_conversation_lock(thread_key: str) -> threading.Lock:
+    with _conversation_state_lock:
+        lock = _conversation_locks.get(thread_key)
+        if lock is None:
+            lock = threading.Lock()
+            _conversation_locks[thread_key] = lock
+        return lock
+
+
+def _get_last_response_id(thread_key: str) -> str | None:
+    with _conversation_state_lock:
+        return _last_response_ids.get(thread_key)
+
+
+def _set_last_response_id(thread_key: str, response_id: str) -> None:
+    with _conversation_state_lock:
+        _last_response_ids[thread_key] = response_id
+
+
+def _clear_response_id(thread_key: str) -> None:
+    with _conversation_state_lock:
+        _last_response_ids.pop(thread_key, None)
+
+
+def _clear_session_response_ids(session_id: str) -> None:
+    normalized_session = str(session_id or "").strip()
+    with _conversation_state_lock:
+        for key in list(_last_response_ids):
+            key_session = key.split(":", 1)[1] if ":" in key else key
+            if key_session == normalized_session:
+                _last_response_ids.pop(key, None)
+
+
 def _infer_interaction_mode(session_id: str) -> str:
     normalized = str(session_id or "").strip().lower()
     if normalized.startswith("voice"):
@@ -392,12 +444,14 @@ def _build_prompt_instructions(
     *,
     memory_block: str | None = None,
     interaction_mode: str | None = None,
+    extra_context: str | None = None,
 ) -> str:
     mode = _normalize_interaction_mode(interaction_mode or _infer_interaction_mode(session_id))
     context = PromptContext(
         interaction_mode=mode,
         domain_overlays=_domain_overlays_for_command(command, tool_defs),
         memory_block=memory_block,
+        extra_context=extra_context,
     )
     return build_instructions(context)
 
@@ -454,6 +508,69 @@ def _format_context(snapshot: str) -> str | None:
     if len(snapshot) > 500:
         snapshot = snapshot[:500].rsplit(" ", 1)[0] + "..."
     return f"Context (read-only): {snapshot}"
+
+
+def classify_request_route(
+    command: str,
+    *,
+    source: str,
+    session_id: str,
+    runtime_context: str,
+) -> dict[str, str]:
+    instructions = (
+        "You are TALOS's request router. Decide how the next user turn should be handled. "
+        "Return only compact JSON with keys mode, reason, and response. Valid modes: foreground, background, status. "
+        "Use foreground for ordinary chat, definitions, explanations, and questions about TALOS behavior. "
+        "Use background only when the user is asking TALOS to perform long-running work that can continue after an acknowledgement. "
+        "Use status only when the user is asking about active, completed, failed, or specific background jobs. "
+        "Do not route based on keywords alone; infer the user's intent from the whole request and runtime context. "
+        "For background mode, response should be a short natural acknowledgement to show immediately. "
+        "For foreground or status mode, response should be an empty string because the main agent will answer."
+    )
+    input_items = [
+        {
+            "role": "system",
+            "content": (
+                f"Source: {source}\n"
+                f"Session ID: {session_id}\n"
+                f"Runtime context:\n{runtime_context or 'No recent runtime context.'}"
+            ),
+        },
+        {"role": "user", "content": command},
+    ]
+    response = _responses_create_with_retry(
+        model=ROUTER_MODEL,
+        instructions=instructions,
+        input=input_items,
+        temperature=0,
+        max_output_tokens=120,
+    )
+    payload = _parse_router_payload(str(response.output_text or ""))
+    mode = payload.get("mode", "foreground").strip().lower()
+    if mode not in {"foreground", "background", "status"}:
+        mode = "foreground"
+    reason = payload.get("reason", "model route decision").strip() or "model route decision"
+    response_text = payload.get("response", "").strip()
+    return {
+        "mode": mode,
+        "reason": _truncate_text(reason, 240),
+        "response": _truncate_text(response_text, 240),
+    }
+
+
+def _parse_router_payload(text: str) -> dict[str, str]:
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = stripped.strip("`")
+        if stripped.lower().startswith("json"):
+            stripped = stripped[4:].strip()
+    try:
+        parsed = json.loads(stripped)
+    except Exception:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    return {str(key): str(value) for key, value in parsed.items()}
 
 
 def _tokenize_lowered(text: str) -> set[str]:
@@ -667,6 +784,14 @@ def _shape_tool_output(name: str, result: Any) -> str:
     raw_output = str(result)
     shaped_output = raw_output
     used_summary = False
+
+    if name == "list_mcp_tools":
+        if len(raw_output) > TOOL_OUTPUT_CHAR_LIMIT:
+            print(
+                f"Tool output preserved for {name}: raw={len(raw_output)} chars, "
+                "summary=False, truncated=False"
+            )
+        return shaped_output
 
     if TOOL_OUTPUT_SUMMARY_ENABLED:
         summary_output = _summarize_tool_result(name, raw_output)
@@ -951,6 +1076,8 @@ def run_command(
     *,
     session_id: str = "default",
     interaction_mode: str | None = None,
+    runtime_lane: str = "foreground",
+    extra_context: str | None = None,
     benchmark: Any = None,
 ) -> str:
     if benchmark:
@@ -973,6 +1100,7 @@ def run_command(
         tool_defs,
         memory_block=memory_block,
         interaction_mode=mode,
+        extra_context=extra_context,
     )
 
     input_items: list[dict[str, Any]] = []
@@ -983,7 +1111,8 @@ def run_command(
     input_items.append({"role": "user", "content": command})
 
     try:
-        with _conversation_lock:
+        thread_key = _response_thread_key(session_id, runtime_lane)
+        with _get_conversation_lock(thread_key):
             request_kwargs: dict[str, Any] = {
                 "model": ai_model,
                 "instructions": instructions,
@@ -992,7 +1121,7 @@ def run_command(
                 "temperature": 0.5,
                 "max_output_tokens": 150,
             }
-            previous_response_id = _last_response_ids.get(session_id)
+            previous_response_id = _get_last_response_id(thread_key)
             if previous_response_id:
                 request_kwargs["previous_response_id"] = previous_response_id
 
@@ -1016,12 +1145,12 @@ def run_command(
                     tool_events.extend(recent_events)
                 if not tool_outputs:
                     response_text = (response.output_text or "").strip()
-                    _last_response_ids[session_id] = response.id
+                    _set_last_response_id(thread_key, response.id)
                     break
 
                 if rounds >= MAX_TOOL_CALL_ROUNDS:
                     response_text = "I reached the tool-call limit before finishing that request."
-                    _last_response_ids[session_id] = response.id
+                    _set_last_response_id(thread_key, response.id)
                     break
 
                 if benchmark:
@@ -1065,7 +1194,7 @@ def run_command(
                         continue
 
                     response_text = _fallback_response_from_tool_error(command, tool_events, exc)
-                    _last_response_ids.pop(session_id, None)
+                    _clear_response_id(thread_key)
                     break
                 rounds += 1
 
@@ -1091,8 +1220,7 @@ def run_command(
 
 
 def reset_session(session_id: str) -> None:
-    with _conversation_lock:
-        _last_response_ids.pop(session_id, None)
+    _clear_session_response_ids(session_id)
 
 
 def shutdown() -> None:

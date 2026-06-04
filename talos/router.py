@@ -1,9 +1,16 @@
+from __future__ import annotations
+
 import queue
 from typing import Optional
 
 from talos.agent import runtime as agent_runtime
+from talos.jobs import TERMINAL_STATUSES, JobManager, JobRecord, get_default_job_store
 from talos.messages import Message, StatusPayload, TextPayload, VoicePayload
+from talos.request_classifier import RequestClassification, classify_request
 from talos.state_store import StateStore
+
+
+BACKGROUND_ACK = "I can do that. I'm working on it now."
 
 
 def _run_agent_command(
@@ -13,15 +20,116 @@ def _run_agent_command(
     *,
     session_id: str,
     interaction_mode: str = "text",
+    runtime_lane: str = "foreground",
+    extra_context: str | None = None,
 ) -> str:
     response_text = agent_runtime.run_command(
         command,
         snapshot,
         session_id=session_id,
         interaction_mode=interaction_mode,
+        runtime_lane=runtime_lane,
+        extra_context=extra_context,
     )
     gui_queue.put(("VOICE_CMD", command, response_text))
     return response_text
+
+
+def _interaction_mode_for_source(source: str, session_id: str) -> str:
+    normalized_source = str(source or "").strip().lower()
+    normalized_session = str(session_id or "").strip().lower()
+    if normalized_source.startswith("voice") or normalized_session.startswith("voice"):
+        return "voice"
+    return "text"
+
+
+def _job_response(job: JobRecord, *, source: str, response_text: str = "") -> dict:
+    return {
+        "ok": True,
+        "mode": "background",
+        "session_id": job.session_id,
+        "source": source,
+        "job_id": job.job_id,
+        "status": job.status,
+        "response": response_text.strip() or BACKGROUND_ACK,
+    }
+
+
+def _format_job_status(job: JobRecord, *, include_request: bool = False) -> str:
+    lines = [f"{job.job_id}: {job.status}"]
+    if include_request:
+        lines.append(f"Request: {_compact_text(job.request_text, 180)}")
+    if job.progress_message:
+        lines.append(f"Progress: {job.progress_message}")
+    if job.status == "succeeded" and job.result_summary:
+        lines.append(f"Result: {job.result_summary}")
+    elif job.status in {"failed", "interrupted", "cancelled"} and job.error_message:
+        lines.append(f"Error: {job.error_message}")
+    elif job.started_at:
+        lines.append(f"Started: {job.started_at}")
+    return "\n".join(lines)
+
+
+def _runtime_context_for_session(session_id: str, *, limit: int = 6) -> str:
+    store = get_default_job_store()
+    jobs = store.list_session_jobs(session_id, limit=limit)
+    active_jobs = [job for job in jobs if job.status not in TERMINAL_STATUSES]
+    lines = [
+        "TALOS runtime/job context:",
+        "- The foreground lane is for ordinary conversation, definitions, explanations, lightweight questions, and short direct answers.",
+        "- The background lane is for long-running user-requested work that can continue after an immediate acknowledgement.",
+        "- If the user asks about job status, answer from the job snapshot below rather than guessing.",
+    ]
+    if not jobs:
+        lines.append("- No background jobs are recorded for this session.")
+        return "\n".join(lines)
+
+    if active_jobs:
+        lines.append("- Active jobs:")
+        lines.extend(f"  - {_format_job_status(job, include_request=True)}" for job in active_jobs[:3])
+    else:
+        lines.append("- No background jobs are currently active.")
+
+    lines.append("- Recent jobs:")
+    lines.extend(f"  - {_format_job_status(job, include_request=True)}" for job in jobs[:limit])
+    return "\n".join(lines)
+
+
+def _classify_with_context(
+    command: str,
+    *,
+    source: str,
+    session_id: str,
+    runtime_context: str,
+    requested_mode: str = "auto",
+) -> RequestClassification:
+    explicit_decision = classify_request(command, source=source, requested_mode=requested_mode)
+    if explicit_decision.reason.startswith("explicit "):
+        return explicit_decision
+
+    try:
+        payload = agent_runtime.classify_request_route(
+            command,
+            source=source,
+            session_id=session_id,
+            runtime_context=runtime_context,
+        )
+        return RequestClassification(
+            mode=payload.get("mode", "foreground"),
+            reason=payload.get("reason", "model route decision"),
+            response=payload.get("response", ""),
+        )
+    except Exception as exc:
+        print(f"TALOS route decision failed; falling back to heuristic classifier: {exc}")
+        return classify_request(command, source=source, requested_mode=requested_mode)
+
+
+def _compact_text(value: str, limit: int) -> str:
+    compacted = " ".join(str(value or "").split())
+    if len(compacted) <= limit:
+        return compacted
+    return compacted[: limit - 3].rsplit(" ", 1)[0] + "..."
+
 
 def router_loop(central_queue: queue.Queue, gui_queue: queue.Queue, stop_signal: Optional[object] = None):
     """
@@ -31,67 +139,159 @@ def router_loop(central_queue: queue.Queue, gui_queue: queue.Queue, stop_signal:
     - ui messages forward directly to the GUI queue
     """
     state = StateStore()
-    while True:
-        msg: Message = central_queue.get()
-        if msg is None or (stop_signal is not None and msg is stop_signal):
-            break
+    job_manager = JobManager(
+        lambda job: _run_agent_command(
+            job.request_text,
+            gui_queue,
+            str((job.metadata or {}).get("state_snapshot") or "no recent status"),
+            session_id=job.session_id,
+            interaction_mode=str((job.metadata or {}).get("interaction_mode") or "text"),
+            runtime_lane="background",
+        )
+    )
+    try:
+        while True:
+            msg: Message = central_queue.get()
+            if msg is None or (stop_signal is not None and msg is stop_signal):
+                break
 
-        if msg.type == "status":
-            sp: StatusPayload = msg.payload
-            state.update_status(sp.key, sp.value, sp.freshness)
+            if msg.type == "status":
+                sp: StatusPayload = msg.payload
+                state.update_status(sp.key, sp.value, sp.freshness)
 
-        elif msg.type == "voice_cmd":
-            vp: VoicePayload = msg.payload
-            snapshot = state.snapshot()
-            _run_agent_command(
-                vp.command,
-                gui_queue,
-                snapshot,
-                session_id="voice",
-                interaction_mode="voice",
-            )
-
-        elif msg.type == "text_cmd":
-            tp: TextPayload = msg.payload
-            snapshot = state.snapshot()
-            try:
-                response_text = _run_agent_command(
-                    tp.command,
-                    gui_queue,
-                    snapshot,
-                    session_id=tp.session_id,
-                    interaction_mode="text",
-                )
-                if tp.reply_queue is not None:
-                    tp.reply_queue.put(
-                        {
-                            "ok": True,
-                            "response": response_text,
-                            "session_id": tp.session_id,
-                            "source": tp.source,
-                        }
-                    )
-            except Exception as exc:
-                if tp.reply_queue is not None:
-                    tp.reply_queue.put(
-                        {
-                            "ok": False,
-                            "error": str(exc),
-                            "session_id": tp.session_id,
-                            "source": tp.source,
-                        }
-                    )
-
-        elif msg.type == "event":
-            if msg.needs_llm:
+            elif msg.type == "voice_cmd":
+                vp: VoicePayload = msg.payload
                 snapshot = state.snapshot()
-                _run_agent_command(
-                    f"Event {msg.payload.name}: {msg.payload.data}",
-                    gui_queue,
-                    snapshot,
-                    session_id="events",
-                    interaction_mode="text",
+                runtime_context = _runtime_context_for_session("voice")
+                decision = _classify_with_context(
+                    vp.command,
+                    source="voice",
+                    session_id="voice",
+                    runtime_context=runtime_context,
                 )
+                if decision.mode == "status":
+                    _run_agent_command(
+                        vp.command,
+                        gui_queue,
+                        snapshot,
+                        session_id="voice",
+                        interaction_mode="voice",
+                        extra_context=runtime_context,
+                    )
+                elif decision.mode == "background":
+                    job = job_manager.submit(
+                        session_id="voice",
+                        source="voice",
+                        request_text=vp.command,
+                        state_snapshot=snapshot,
+                        interaction_mode="voice",
+                        classification_reason=decision.reason,
+                    )
+                    ack_text = decision.response.strip() or BACKGROUND_ACK
+                    gui_queue.put(("VOICE_CMD", vp.command, f"{ack_text} Job ID: {job.job_id}"))
+                else:
+                    _run_agent_command(
+                        vp.command,
+                        gui_queue,
+                        snapshot,
+                        session_id="voice",
+                        interaction_mode="voice",
+                    )
 
-        elif msg.type == "ui":
-            gui_queue.put(msg.payload)
+            elif msg.type == "text_cmd":
+                tp: TextPayload = msg.payload
+                snapshot = state.snapshot()
+                interaction_mode = _interaction_mode_for_source(tp.source, tp.session_id)
+                runtime_context = _runtime_context_for_session(tp.session_id)
+                decision = _classify_with_context(
+                    tp.command,
+                    source=tp.source,
+                    session_id=tp.session_id,
+                    runtime_context=runtime_context,
+                    requested_mode=tp.requested_mode,
+                )
+                try:
+                    if decision.mode == "status":
+                        response_text = _run_agent_command(
+                            tp.command,
+                            gui_queue,
+                            snapshot,
+                            session_id=tp.session_id,
+                            interaction_mode=interaction_mode,
+                            extra_context=runtime_context,
+                        )
+                        if tp.reply_queue is not None:
+                            tp.reply_queue.put(
+                                {
+                                    "ok": True,
+                                    "mode": "foreground",
+                                    "response": response_text,
+                                    "session_id": tp.session_id,
+                                    "source": tp.source,
+                                }
+                            )
+                        continue
+
+                    if decision.mode == "background":
+                        job = job_manager.submit(
+                            session_id=tp.session_id,
+                            source=tp.source,
+                            request_text=tp.command,
+                            state_snapshot=snapshot,
+                            interaction_mode=interaction_mode,
+                            classification_reason=decision.reason,
+                        )
+                        if tp.reply_queue is not None:
+                            tp.reply_queue.put(
+                                _job_response(
+                                    job,
+                                    source=tp.source,
+                                    response_text=decision.response,
+                                )
+                            )
+                        continue
+
+                    response_text = _run_agent_command(
+                        tp.command,
+                        gui_queue,
+                        snapshot,
+                        session_id=tp.session_id,
+                        interaction_mode=interaction_mode,
+                        extra_context=runtime_context,
+                    )
+                    if tp.reply_queue is not None:
+                        tp.reply_queue.put(
+                            {
+                                "ok": True,
+                                "mode": "foreground",
+                                "response": response_text,
+                                "session_id": tp.session_id,
+                                "source": tp.source,
+                            }
+                        )
+                except Exception as exc:
+                    if tp.reply_queue is not None:
+                        tp.reply_queue.put(
+                            {
+                                "ok": False,
+                                "error": str(exc),
+                                "session_id": tp.session_id,
+                                "source": tp.source,
+                            }
+                        )
+
+            elif msg.type == "event":
+                if msg.needs_llm:
+                    snapshot = state.snapshot()
+                    _run_agent_command(
+                        f"Event {msg.payload.name}: {msg.payload.data}",
+                        gui_queue,
+                        snapshot,
+                        session_id="events",
+                        interaction_mode="text",
+                    )
+
+            elif msg.type == "ui":
+                gui_queue.put(msg.payload)
+    finally:
+        job_manager.shutdown(wait=False)
