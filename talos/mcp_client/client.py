@@ -19,6 +19,22 @@ class McpProtocolError(RuntimeError):
     pass
 
 
+# Lifecycle modes describe *when* a provider is allowed to start, independently
+# of its transport. They isolate heavyweight providers (such as KiCad) from the
+# generic tool-discovery path so ordinary chat never blocks on a slow backend.
+LIFECYCLE_EAGER = "eager"
+LIFECYCLE_LAZY = "lazy"
+LIFECYCLE_SIDECAR_MANUAL = "sidecar_manual"
+LIFECYCLE_SIDECAR_AUTOSTART = "sidecar_autostart"
+
+# Providers in these modes are never started during generic tool discovery.
+_DEFERRED_LIFECYCLE_MODES = {
+    LIFECYCLE_LAZY,
+    LIFECYCLE_SIDECAR_MANUAL,
+    LIFECYCLE_SIDECAR_AUTOSTART,
+}
+
+
 @dataclass
 class McpServerConfig:
     name: str
@@ -33,12 +49,43 @@ class McpServerConfig:
     cwd: str | None = None
     env: dict[str, str] = field(default_factory=dict)
     timeout_seconds: float = 30.0
+    mode: str = ""
 
     def normalized_transport(self) -> str:
         transport = self.transport.strip().lower().replace("-", "_")
         if transport == "http":
             return "streamable_http"
         return transport
+
+    def lifecycle_mode(self) -> str:
+        """Normalize the configured provider mode into a lifecycle policy.
+
+        ``stdio``/``eager``/unset all map to the legacy eager-blocking behavior
+        so existing deployments keep working. Everything else is deferred from
+        generic tool discovery.
+        """
+
+        mode = (self.mode or "").strip().lower().replace("-", "_")
+        if mode in ("", "stdio", "eager", "blocking"):
+            return LIFECYCLE_EAGER
+        if mode in ("lazy", "on_demand", "ondemand"):
+            return LIFECYCLE_LAZY
+        if mode in ("sidecar_manual", "manual"):
+            return LIFECYCLE_SIDECAR_MANUAL
+        if mode in ("sidecar_autostart", "autostart", "background", "warm"):
+            return LIFECYCLE_SIDECAR_AUTOSTART
+        return LIFECYCLE_EAGER
+
+    def is_eager(self) -> bool:
+        return self.lifecycle_mode() == LIFECYCLE_EAGER
+
+    def is_deferred(self) -> bool:
+        """True when generic tool discovery must not start this provider."""
+
+        return self.lifecycle_mode() in _DEFERRED_LIFECYCLE_MODES
+
+    def is_autostart(self) -> bool:
+        return self.lifecycle_mode() == LIFECYCLE_SIDECAR_AUTOSTART
 
     def exposed_tool_name(self, raw_name: str) -> str:
         return f"{self.tool_prefix}{raw_name}" if self.tool_prefix else raw_name
@@ -54,17 +101,50 @@ class McpServerStatus:
     last_error: str | None = None
     last_transition: float = field(default_factory=time.time)
     next_retry_at: float | None = None
+    mode: str = LIFECYCLE_EAGER
+    warming_since: float | None = None
+
+    def elapsed_seconds(self) -> float | None:
+        """Seconds spent in the current warmup, if the provider is warming."""
+
+        if self.warming_since is None or self.status not in {"warming", "starting", "reconnecting"}:
+            return None
+        return max(0.0, time.time() - self.warming_since)
+
+    def detail(self) -> str:
+        """Compact, model-friendly description of the provider phase."""
+
+        elapsed = self.elapsed_seconds()
+        if self.status == "warming":
+            if elapsed is not None:
+                return f"sidecar is warming, {elapsed:.0f}s elapsed"
+            return "sidecar is warming"
+        if self.status in {"starting", "reconnecting"}:
+            if elapsed is not None:
+                return f"provider is starting, {elapsed:.0f}s elapsed"
+            return "provider is starting"
+        if self.status == "healthy":
+            return "ready"
+        if self.status == "not_started":
+            return "not started"
+        if self.status in {"degraded", "failed"} and self.last_error:
+            return f"{self.status}: {self.last_error}"
+        return self.status
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "transport": self.transport,
+            "mode": self.mode,
             "status": self.status,
+            "ready": self.healthy,
             "healthy": self.healthy,
             "failure_count": self.failure_count,
             "last_error": self.last_error,
             "last_transition": self.last_transition,
             "next_retry_at": self.next_retry_at,
+            "elapsed_seconds": self.elapsed_seconds(),
+            "detail": self.detail(),
         }
 
 
@@ -231,6 +311,7 @@ class LocalMcpClient:
             config.name: McpServerStatus(
                 name=config.name,
                 transport=config.normalized_transport(),
+                mode=config.lifecycle_mode(),
             )
             for config in self._configs
         }
@@ -396,8 +477,30 @@ class LocalMcpClient:
         self._run_coro(self._async_retry_servers(server))
         return self.list_server_status()
 
+    def start_server(self, server: str, *, background: bool = True) -> list[dict[str, Any]]:
+        """Explicitly start (or warm) a named provider without restarting TALOS.
+
+        ``background=True`` (the default) returns immediately while the provider
+        warms, so a foreground turn is never frozen waiting on a heavyweight
+        backend. ``background=False`` waits for the provider to come up.
+        """
+
+        self.start()
+        requested = server.strip() if isinstance(server, str) else ""
+        if not requested or requested not in self._connections:
+            raise KeyError(requested)
+        self._run_coro(self._async_start_server(requested, background=background))
+        return self.list_server_status()
+
     async def _async_start(self, *, force_retry: bool = False) -> None:
         for config in self._configs:
+            if config.is_deferred():
+                # Deferred providers (lazy / sidecar) must not block agent boot.
+                # Autostart providers warm in the background; lazy/manual ones
+                # wait until a request explicitly needs them.
+                if config.is_autostart():
+                    self._schedule_background_start(config.name)
+                continue
             await self._async_ensure_started(config.name, force_retry=force_retry)
 
     async def _async_retry_servers(self, server: str | None = None) -> None:
@@ -437,7 +540,14 @@ class LocalMcpClient:
 
         for config in self._configs:
             connection = self._connections[config.name]
-            if not await self._async_ensure_started(config.name, force_retry=force_retry):
+            if config.is_deferred():
+                # Generic tool discovery must never start a heavyweight provider
+                # or talk to one that is still warming. Its tools only become
+                # visible once it is actually ready, so a cold/warming/failed
+                # KiCad never delays or breaks ordinary chat.
+                if not self._deferred_provider_ready(config.name):
+                    continue
+            elif not await self._async_ensure_started(config.name, force_retry=force_retry):
                 continue
 
             try:
@@ -488,6 +598,12 @@ class LocalMcpClient:
     async def _async_call_tool(self, name: str, arguments: dict[str, Any]) -> str:
         route = self._tool_routes.get(name)
         if route is None:
+            # A deferred provider may own this tool by prefix even though its
+            # tools are not yet exposed. Start it on demand (lazy activation)
+            # before giving up so an explicit request can still use it.
+            owner = self._deferred_owner_for_tool(name)
+            if owner is not None and not self._connection_is_running(self._connections[owner]):
+                await self._async_ensure_started(owner, force_retry=True)
             await self._async_list_tools()
             route = self._tool_routes.get(name)
         if route is None:
@@ -510,7 +626,10 @@ class LocalMcpClient:
 
         for config in self._configs:
             connection = self._connections[config.name]
-            if not await self._async_ensure_started(config.name):
+            if config.is_deferred():
+                if not self._deferred_provider_ready(config.name):
+                    continue
+            elif not await self._async_ensure_started(config.name):
                 continue
             try:
                 result = await self._with_timeout(
@@ -549,7 +668,10 @@ class LocalMcpClient:
 
         for config in self._configs:
             connection = self._connections[config.name]
-            if not await self._async_ensure_started(config.name):
+            if config.is_deferred():
+                if not self._deferred_provider_ready(config.name):
+                    continue
+            elif not await self._async_ensure_started(config.name):
                 continue
             try:
                 result = await self._with_timeout(
@@ -641,9 +763,18 @@ class LocalMcpClient:
                 except Exception as exc:
                     await self._mark_server_failed(server_name, exc)
                     return False
+            current = self._status[server_name].status
+            if current == "warming":
+                # A background sidecar warmup is already running; leave the
+                # warming phase (and its elapsed timer) intact.
+                transient = "warming"
+            elif self._status[server_name].failure_count:
+                transient = "reconnecting"
+            else:
+                transient = "starting"
             self._mark_server_transition(
                 server_name,
-                "reconnecting" if self._status[server_name].failure_count else "starting",
+                transient,
                 healthy=False,
                 error="MCP server startup is already in progress; not starting a duplicate process.",
             )
@@ -701,6 +832,73 @@ class LocalMcpClient:
         self._resource_cache = None
         self._resource_template_cache = None
 
+    def _schedule_background_start(self, server_name: str) -> None:
+        """Begin warming a provider in the background without blocking callers.
+
+        Used for ``sidecar_autostart`` providers (and explicit non-blocking
+        starts). The provider transitions to ``warming`` immediately and becomes
+        ``healthy`` only once its connection is live, at which point its tools
+        are refreshed into the catalog.
+        """
+
+        connection = self._connections[server_name]
+        if self._connection_is_running(connection):
+            self._mark_server_healthy(server_name)
+            return
+
+        pending = self._pending_starts.get(server_name)
+        if pending is not None and not pending.done():
+            return
+
+        self._mark_server_transition(server_name, "warming", healthy=False)
+        task = asyncio.create_task(self._background_warmup(server_name))
+        self._pending_starts[server_name] = task
+
+    async def _background_warmup(self, server_name: str) -> None:
+        connection = self._connections[server_name]
+        try:
+            await connection.start()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            await self._mark_server_failed(server_name, exc)
+            return
+        finally:
+            if self._pending_starts.get(server_name) is asyncio.current_task():
+                self._pending_starts.pop(server_name, None)
+
+        self._mark_server_healthy(server_name)
+        # The provider is now ready; drop cached catalogs so its tools and
+        # resources are surfaced on the next discovery.
+        self._tool_cache = None
+        self._resource_cache = None
+        self._resource_template_cache = None
+
+    def _deferred_owner_for_tool(self, exposed_name: str) -> str | None:
+        """Resolve which deferred provider owns a (possibly unexposed) tool.
+
+        Heavyweight providers keep their tools hidden until ready, so the route
+        table will not contain them while cold. We fall back to matching the
+        configured ``tool_prefix`` so an explicit tool call can still activate a
+        lazy provider on demand.
+        """
+
+        best: tuple[int, str] | None = None
+        for config in self._configs:
+            if not config.is_deferred() or not config.tool_prefix:
+                continue
+            if exposed_name.startswith(config.tool_prefix):
+                prefix_len = len(config.tool_prefix)
+                if best is None or prefix_len > best[0]:
+                    best = (prefix_len, config.name)
+        return best[1] if best is not None else None
+
+    async def _async_start_server(self, server_name: str, *, background: bool) -> None:
+        if background:
+            self._schedule_background_start(server_name)
+            return
+        await self._async_ensure_started(server_name, force_retry=True)
+
     async def _async_call_with_reconnect(
         self,
         connection: _ServerConnection,
@@ -745,6 +943,19 @@ class LocalMcpClient:
     def _connection_is_running(self, connection: Any) -> bool:
         return bool(getattr(connection, "is_running", True))
 
+    def _deferred_provider_ready(self, server_name: str) -> bool:
+        """True only when a deferred provider has finished warming and is ready.
+
+        ``connection.is_running`` flips to True while the MCP ``initialize``
+        handshake is still in flight (a heavyweight backend can sit there for
+        many seconds), so it must not be used to decide tool exposure. Gating on
+        the marked-healthy status guarantees foreground tool discovery never
+        blocks on, or surfaces tools from, a provider that is still warming.
+        """
+
+        connection = self._connections[server_name]
+        return self._status[server_name].healthy and self._connection_is_running(connection)
+
     def _mark_server_transition(
         self,
         server_name: str,
@@ -758,6 +969,11 @@ class LocalMcpClient:
         item.healthy = healthy
         item.last_error = error
         item.last_transition = time.time()
+        if status in {"warming", "starting", "reconnecting"}:
+            if item.warming_since is None:
+                item.warming_since = time.time()
+        else:
+            item.warming_since = None
 
     def _mark_server_healthy(self, server_name: str) -> None:
         item = self._status[server_name]
@@ -767,6 +983,7 @@ class LocalMcpClient:
         item.last_error = None
         item.next_retry_at = None
         item.last_transition = time.time()
+        item.warming_since = None
 
     def _mark_server_stopped(self, server_name: str) -> None:
         item = self._status[server_name]
@@ -774,6 +991,7 @@ class LocalMcpClient:
         item.healthy = False
         item.next_retry_at = None
         item.last_transition = time.time()
+        item.warming_since = None
 
     async def _mark_server_failed(
         self,
@@ -800,6 +1018,7 @@ class LocalMcpClient:
         backoff = self._reconnect_backoff_seconds * max(1, item.failure_count)
         item.next_retry_at = time.time() + backoff if backoff > 0 else None
         item.last_transition = time.time()
+        item.warming_since = None
         self._drop_server_routes(server_name)
         print(f"MCP server '{server_name}' marked {item.status}: {item.last_error}")
 
@@ -1070,7 +1289,47 @@ def _default_local_server_config() -> McpServerConfig:
     )
 
 
+def _resolve_kicad_mode() -> str:
+    """Determine KiCad's lifecycle mode from env.
+
+    KiCad is heavyweight, so it defaults to ``sidecar_autostart`` (background
+    warmup) rather than the blocking ``stdio`` path. ``KICAD_MCP_MODE`` selects
+    the mode directly; the convenience knob ``KICAD_MCP_AUTOSTART`` can override
+    it (``background`` -> autostart, ``lazy`` -> lazy, ``false`` -> lazy).
+    """
+
+    mode = os.getenv("KICAD_MCP_MODE", "").strip().lower()
+    if not mode:
+        mode = LIFECYCLE_SIDECAR_AUTOSTART
+
+    autostart = os.getenv("KICAD_MCP_AUTOSTART", "").strip().lower()
+    if autostart in {"background", "warm", "true", "1", "on"}:
+        mode = LIFECYCLE_SIDECAR_AUTOSTART
+    elif autostart in {"lazy", "on_demand", "ondemand"}:
+        mode = LIFECYCLE_LAZY
+    elif autostart in {"false", "0", "off", "no"} and mode == LIFECYCLE_SIDECAR_AUTOSTART:
+        # Explicitly disable background warmup but keep the provider available
+        # on demand instead of forcing the blocking stdio path.
+        mode = LIFECYCLE_LAZY
+    return mode
+
+
 def _optional_kicad_server_config() -> McpServerConfig | None:
+    mode = _resolve_kicad_mode()
+    url = os.getenv("KICAD_MCP_URL", "").strip()
+
+    # A manually managed sidecar connects to an already-running HTTP endpoint and
+    # does not need a local server path or command.
+    if McpServerConfig(name="kicad", transport="stdio", mode=mode).lifecycle_mode() == LIFECYCLE_SIDECAR_MANUAL and url:
+        return McpServerConfig(
+            name=os.getenv("KICAD_MCP_SERVER_NAME", "kicad").strip() or "kicad",
+            transport="streamable_http",
+            url=url,
+            tool_prefix=os.getenv("KICAD_MCP_TOOL_PREFIX", "kicad_").strip(),
+            timeout_seconds=float(os.getenv("KICAD_MCP_TIMEOUT", "600")),
+            mode=mode,
+        )
+
     raw_path = os.getenv("KICAD_MCP_SERVER_PATH", "").strip()
     if not raw_path:
         return None
@@ -1117,6 +1376,7 @@ def _optional_kicad_server_config() -> McpServerConfig | None:
         env=env,
         tool_prefix=os.getenv("KICAD_MCP_TOOL_PREFIX", "kicad_").strip(),
         timeout_seconds=float(os.getenv("KICAD_MCP_TIMEOUT", "600")),
+        mode=mode,
     )
 
 
@@ -1191,6 +1451,7 @@ def _load_mcp_server_configs() -> list[McpServerConfig]:
                 cwd=_optional_str(item.get("cwd")),
                 env={str(key): str(value) for key, value in env.items()},
                 timeout_seconds=float(timeout_seconds),
+                mode=str(item.get("mode") or ""),
             )
         )
 

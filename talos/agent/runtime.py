@@ -58,6 +58,7 @@ HOST_TOOL_NAMES = {
     "list_mcp_server_status",
     "list_mcp_tools",
     "retry_mcp_server",
+    "start_mcp_server",
     "remember_memory_fact",
     "list_memory_facts",
 }
@@ -235,6 +236,30 @@ def _resource_tool_definitions() -> list[dict[str, Any]]:
                         "description": "Optional MCP server name to retry, such as kicad.",
                     }
                 },
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "start_mcp_server",
+            "description": (
+                "Explicitly start or warm a heavyweight MCP provider (such as kicad) without restarting TALOS. "
+                "By default this returns immediately while the provider warms in the background, so use "
+                "list_mcp_server_status to check when it becomes ready. Its tools appear only after it is ready."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "server": {
+                        "type": "string",
+                        "description": "MCP server name to start, such as kicad.",
+                    },
+                    "wait": {
+                        "type": "boolean",
+                        "description": "Wait for the provider to finish starting instead of warming in the background. Defaults to false.",
+                    },
+                },
+                "required": ["server"],
                 "additionalProperties": False,
             },
         },
@@ -642,6 +667,73 @@ def _format_kicad_backend_context(raw_output: str, command: str) -> str | None:
     return f"KiCad backend preflight (fresh): {compact_status}"
 
 
+def _find_kicad_provider_status(mcp_client: Any) -> dict[str, Any] | None:
+    """Return the KiCad provider's lifecycle status, if it is configured."""
+
+    try:
+        servers = mcp_client.list_server_status()
+    except Exception:
+        return None
+    for server in servers:
+        name = str(server.get("name") or "").lower()
+        if "kicad" in name:
+            return server
+    return None
+
+
+def _maybe_add_kicad_status_note(
+    input_items: list[dict[str, Any]],
+    mcp_client: Any,
+    tool_defs: list[dict[str, Any]],
+    command: str,
+) -> None:
+    """Tell the model when a KiCad request lands while KiCad is not yet ready.
+
+    Heavyweight KiCad tools are exposed only once the provider is ready, so a
+    cold/warming KiCad would otherwise look like missing tools. Surface the real
+    provider phase and, for lazy/autostart providers, kick off a background
+    warmup so the turn is acknowledged instead of frozen.
+    """
+
+    if not _is_kicad_request(command, tool_defs):
+        return
+
+    status = _find_kicad_provider_status(mcp_client)
+    if status is None or status.get("ready") or status.get("status") == "healthy":
+        return
+
+    server_name = str(status.get("name") or "kicad")
+    mode = str(status.get("mode") or "")
+    phase = status.get("status")
+
+    # Lazy/autostart providers should begin warming the moment a request needs
+    # them, without blocking this turn.
+    if mode in {"lazy", "sidecar_autostart"} and phase not in {"warming", "starting", "reconnecting"}:
+        try:
+            refreshed = mcp_client.start_server(server_name, background=True)
+            for server in refreshed:
+                if str(server.get("name") or "") == server_name:
+                    status = server
+                    break
+        except Exception as exc:
+            print(f"KiCad background start failed: {_truncate_text(str(exc), 200)}")
+
+    detail = str(status.get("detail") or status.get("status") or "not ready")
+    input_items.append(
+        {
+            "role": "system",
+            "content": (
+                f"KiCad provider '{server_name}' is not ready ({detail}); its KiCad tools are not "
+                "exposed yet. Do not wait or hang the turn. Briefly tell the user KiCad is warming up "
+                "in the background and that you will be able to run KiCad steps once it is ready. "
+                "Use list_mcp_server_status to check readiness, or start_mcp_server to (re)start it. "
+                "File-based schematic edits that do not require the live KiCad backend can still proceed "
+                "with any available file tools."
+            ),
+        }
+    )
+
+
 def _maybe_add_kicad_preflight(
     input_items: list[dict[str, Any]],
     mcp_client: Any,
@@ -653,6 +745,9 @@ def _maybe_add_kicad_preflight(
 
     tool_names = {str(tool.get("name") or "") for tool in tool_defs}
     if KICAD_BACKEND_STATE_TOOL not in tool_names:
+        # KiCad is not ready (its tools are not exposed); report the provider
+        # phase instead of silently behaving as if KiCad were unavailable.
+        _maybe_add_kicad_status_note(input_items, mcp_client, tool_defs, command)
         return
 
     try:
@@ -971,6 +1066,18 @@ def _invoke_host_tool(
         server = parsed_arguments.get("server")
         server_name = str(server).strip() if server not in (None, "") else None
         return json.dumps({"servers": mcp_client.retry_server(server_name)})
+    if name == "start_mcp_server":
+        server_name = str(parsed_arguments.get("server") or "").strip()
+        if not server_name:
+            raise ValueError("start_mcp_server requires a non-empty 'server'.")
+        wait = bool(parsed_arguments.get("wait"))
+        try:
+            servers = mcp_client.start_server(server_name, background=not wait)
+        except KeyError:
+            return json.dumps(
+                {"success": False, "message": f"Unknown MCP server '{server_name}'."}
+            )
+        return json.dumps({"success": True, "servers": servers})
     if name == "remember_memory_fact":
         memory_store = _get_memory_store()
         if memory_store is None:
