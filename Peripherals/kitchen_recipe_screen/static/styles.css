@@ -265,6 +265,12 @@ body::before {
   overflow: hidden;
 }
 
+.ingredients-panel,
+.steps-panel {
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
 .notes-panel {
   display: grid;
   grid-template-rows: auto 1fr;
@@ -299,6 +305,14 @@ body::before {
   gap: 8px;
 }
 
+.ingredient-list {
+  --ingredient-gap: 8px;
+  gap: var(--ingredient-gap);
+  max-height: 100%;
+  overflow: hidden;
+  align-content: start;
+}
+
 .ingredient-item,
 .note-item {
   padding: 7px 10px;
@@ -318,33 +332,53 @@ body::before {
   text-decoration: line-through;
 }
 
+.ingredient-item {
+  --ingredient-font-size: 26px;
+  --ingredient-padding-y: 7px;
+  --ingredient-padding-x: 10px;
+  padding: var(--ingredient-padding-y) var(--ingredient-padding-x);
+}
+
+.ingredient-text {
+  display: block;
+  font-size: var(--ingredient-font-size);
+  line-height: 1.05;
+}
+
 .step-list {
+  --step-gap: 8px;
   margin: 0;
   padding: 0;
   list-style: none;
   display: grid;
-  gap: 8px;
+  gap: var(--step-gap);
   max-height: 100%;
   overflow: hidden;
+  align-content: start;
 }
 
 .step-card {
+  --step-padding: 10px;
+  --step-gap-inner: 8px;
+  --step-number-width: 50px;
   display: grid;
-  grid-template-columns: 50px minmax(0, 1fr);
-  gap: 8px;
-  padding: 10px;
+  grid-template-columns: var(--step-number-width) minmax(0, 1fr);
+  gap: var(--step-gap-inner);
+  padding: var(--step-padding);
   border: 1px solid rgba(125, 255, 157, 0.2);
   background: rgba(3, 18, 8, 0.5);
 }
 
 .step-number {
-  font-size: 32px;
+  --step-number-font-size: 32px;
+  font-size: var(--step-number-font-size);
   line-height: 1;
   color: var(--warning);
 }
 
 .step-text {
-  font-size: 28px;
+  --step-text-font-size: 28px;
+  font-size: var(--step-text-font-size);
   line-height: 1.02;
 }
 
