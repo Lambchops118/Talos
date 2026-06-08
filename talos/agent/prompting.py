@@ -14,6 +14,7 @@ DEFAULT_OVERLAY_PATHS: dict[str, Path] = {
     "voice": PERSONALITY_ROOT / "overlays" / "voice.md",
     "text": PERSONALITY_ROOT / "overlays" / "text.md",
     "kicad": PERSONALITY_ROOT / "overlays" / "kicad.md",
+    "minecraft": PERSONALITY_ROOT / "overlays" / "minecraft.md",
     "filesystem": PERSONALITY_ROOT / "overlays" / "filesystem.md",
     "tool_usage": PERSONALITY_ROOT / "overlays" / "tool_usage.md",
 }

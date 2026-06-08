@@ -49,6 +49,11 @@ TOOL_OUTPUT_SUMMARY_PREVIEW_ITEMS = max(
 TOOL_OUTPUT_SUMMARY_PREVIEW_KEYS = max(
     1, env_int("TALOS_TOOL_OUTPUT_SUMMARY_PREVIEW_KEYS", 12)
 )
+MINECRAFT_TOOL_PREFIX = os.getenv("MINECRAFT_MCP_SEARCH_TOOL_PREFIX", "minecraft_").strip() or "minecraft_"
+MINECRAFT_FILESYSTEM_TOOL_PREFIX = (
+    os.getenv("MINECRAFT_MCP_FILESYSTEM_TOOL_PREFIX", "minecraft_fs_").strip() or "minecraft_fs_"
+)
+MINECRAFT_SERVER_DIR = os.getenv("MINECRAFT_SERVER_DIR", "").strip()
 
 _conversation_state_lock = threading.Lock()
 _conversation_locks: dict[str, threading.Lock] = {}
@@ -137,6 +142,37 @@ KICAD_BOARD_EDIT_TERMS = {
     "move",
     "rotate",
 }
+MINECRAFT_RELEVANT_TERMS = {
+    "minecraft",
+    "forge",
+    "neoforge",
+    "fabric",
+    "modded",
+    "modpack",
+    "mods",
+    "kubejs",
+    "datapack",
+    "datapacks",
+    "serverconfig",
+    "defaultconfigs",
+    "crash",
+    "mixin",
+    "modloadingexception",
+}
+MINECRAFT_PATH_HINTS = (
+    "latest.log",
+    "debug.log",
+    "crash-reports",
+    "config/",
+    "defaultconfigs/",
+    "world/serverconfig/",
+    "mods/",
+    "kubejs/",
+    "scripts/",
+    "datapacks/",
+    "server.properties",
+    "forge-server.toml",
+)
 KICAD_SCHEMATIC_TO_BOARD_TERMS = {
     "schematic",
     "sync",
@@ -461,6 +497,8 @@ def _domain_overlays_for_command(command: str, tool_defs: list[dict[str, Any]]) 
     overlays = list(DEFAULT_DOMAIN_OVERLAYS)
     if _is_kicad_request(command, tool_defs):
         overlays.append("kicad")
+    if _is_minecraft_request(command, tool_defs):
+        overlays.append("minecraft")
     return tuple(overlays)
 
 
@@ -616,6 +654,28 @@ def _is_kicad_request(command: str, tool_defs: list[dict[str, Any]]) -> bool:
     return bool(_tokenize_lowered(command) & KICAD_RELEVANT_TERMS)
 
 
+def _has_minecraft_tools(tool_defs: list[dict[str, Any]]) -> bool:
+    prefixes = (MINECRAFT_TOOL_PREFIX, MINECRAFT_FILESYSTEM_TOOL_PREFIX)
+    return any(
+        str(tool.get("name") or "").startswith(prefix)
+        for prefix in prefixes
+        for tool in tool_defs
+    )
+
+
+def _is_minecraft_request(command: str, tool_defs: list[dict[str, Any]]) -> bool:
+    lowered = command.lower()
+    if MINECRAFT_TOOL_PREFIX in lowered or MINECRAFT_FILESYSTEM_TOOL_PREFIX in lowered:
+        return True
+    if "minecraft" in lowered or "forge" in lowered or "modpack" in lowered or "kubejs" in lowered:
+        return True
+    if any(hint in lowered for hint in MINECRAFT_PATH_HINTS):
+        return True
+    if not _has_minecraft_tools(tool_defs):
+        return False
+    return bool(_tokenize_lowered(command) & MINECRAFT_RELEVANT_TERMS)
+
+
 def _format_kicad_backend_context(raw_output: str, command: str) -> str | None:
     stripped = raw_output.strip()
     if not stripped:
@@ -766,6 +826,39 @@ def _maybe_add_kicad_preflight(
     preflight_context = _format_kicad_backend_context(raw_state, command)
     if preflight_context:
         input_items.append({"role": "system", "content": preflight_context})
+
+
+def _maybe_add_minecraft_context(
+    input_items: list[dict[str, Any]],
+    tool_defs: list[dict[str, Any]],
+    command: str,
+) -> None:
+    if not _is_minecraft_request(command, tool_defs):
+        return
+
+    if not MINECRAFT_SERVER_DIR:
+        input_items.append(
+            {
+                "role": "system",
+                "content": (
+                    "Minecraft/Forge diagnostics were requested, but MINECRAFT_SERVER_DIR is not configured. "
+                    "Do not assume the server filesystem is available; tell the user to configure that root first."
+                ),
+            }
+        )
+        return
+
+    input_items.append(
+        {
+            "role": "system",
+            "content": (
+                f"Minecraft server diagnostics root: {MINECRAFT_SERVER_DIR}. Keep filesystem and search work "
+                "inside that directory. Start shallow, prioritize recent logs and crash reports, avoid binaries "
+                "or huge world data unless needed, and correlate failures to mod IDs, configs, datapacks, "
+                "scripts, or jar filenames before proposing changes."
+            ),
+        }
+    )
 
 
 def _parse_function_arguments(arguments: Any) -> dict[str, Any]:
@@ -1208,6 +1301,7 @@ def run_command(
     if context_message:
         input_items.append({"role": "system", "content": context_message})
     _maybe_add_kicad_preflight(input_items, mcp_client, tool_defs, command)
+    _maybe_add_minecraft_context(input_items, tool_defs, command)
     input_items.append({"role": "user", "content": command})
 
     try:

@@ -1,0 +1,28 @@
+# Minecraft Forge Diagnostics Overlay
+
+- When filesystem MCP access is configured for a Minecraft server, keep all investigation inside that server root.
+- Use the Minecraft diagnostics tools and the scoped filesystem tools to diagnose Forge, NeoForge, Fabric, KubeJS, datapack, config, and modpack failures.
+- Start by summarizing the directory structure instead of reading every file blindly.
+- Prioritize these locations when present:
+  - `logs/latest.log`
+  - `logs/debug.log`
+  - `crash-reports/`
+  - `config/`
+  - `defaultconfigs/`
+  - `world/serverconfig/`
+  - `mods/`
+  - `kubejs/`
+  - `scripts/`
+  - `datapacks/`
+  - `server.properties`
+  - `forge-server.toml`
+- Search logs for `ERROR`, `WARN`, `Exception`, `Caused by`, `Failed`, `Missing`, `Registry`, `Mixin`, `ModLoadingException`, `datapack`, `recipe`, `biome`, `dimension`, `entity`, and likely mod IDs.
+- Correlate failures to specific mod jars, config files, datapacks, scripts, or world overrides before suggesting a fix.
+- Check for duplicate mods, client-only mods on a server, mismatched dependency versions, malformed config syntax, broken datapacks, KubeJS/script errors, and world-specific server config overrides.
+- Prefer targeted reads, line ranges, and small chunks over dumping entire large files.
+- Treat `.jar`, `.class`, `.png`, `.ogg`, `.dat`, `.mca`, `.sqlite`, `.zip`, and other binary-heavy files carefully. Do not dump binary contents into context unless explicitly needed.
+- Include hidden files only when relevant or when normal inspection does not explain the issue.
+- Be cautious with symlinks. Do not follow symlinks outside the configured server root.
+- Before proposing edits, explain the evidence. Before making edits, show a diff or a patch plan first.
+- Never delete files automatically. If a risky change is needed, prefer suggesting a quarantine or disabled folder.
+- If write-capable filesystem tools are available, treat them as opt-in. Do not modify files without explicit user confirmation.

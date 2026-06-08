@@ -172,6 +172,64 @@ KICAD_AUTO_LAUNCH=false
 KICAD_PYTHONPATH=/Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/lib/python3.10/site-packages
 ```
 
+General filesystem MCP support:
+
+- Set `TALOS_FILESYSTEM_ROOTS` and TALOS will append the official `@modelcontextprotocol/server-filesystem` server automatically.
+- Use a JSON array of absolute paths for multiple roots. Example:
+
+```env
+TALOS_FILESYSTEM_ROOTS=["/Users/you/projects","/Volumes/shared/reference"]
+TALOS_FILESYSTEM_ALLOW_WRITES=0
+```
+
+- TALOS prefixes these tools with `fs_` by default so they can coexist with other MCP providers.
+- Read-only behavior is the default user experience. TALOS hides the filesystem server's write-capable tools unless `TALOS_FILESYSTEM_ALLOW_WRITES=1` is set explicitly.
+- This is general filesystem support, not just workspace access. TALOS can inspect any configured roots that the official filesystem server is allowed to access.
+- Install prerequisites:
+  - Node.js with `npx`
+  - access to `@modelcontextprotocol/server-filesystem`, usually via `npx -y`
+- Restart TALOS after changing `.env` so the MCP list is rebuilt.
+- Verify the setup with:
+
+```bash
+.venv-main/bin/python tools/verify_filesystem_mcp_setup.py
+```
+
+- More detailed setup notes live in [docs/filesystem-mcp.md](/Users/jacksal1/Desktop/Talos/Talos/docs/filesystem-mcp.md).
+
+Minecraft Forge/modpack diagnostics:
+
+- Set `MINECRAFT_SERVER_DIR` to a modded server root and TALOS will append two MCP servers automatically:
+  - the official `@modelcontextprotocol/server-filesystem` server, scoped to that directory only
+  - a TALOS-owned ripgrep diagnostics server that enforces the same root and adds helpers like `minecraft_find_recent_logs`, `minecraft_search_text`, and `minecraft_detect_duplicate_mods`
+- The local ripgrep wrapper exists because the generic `mcp-ripgrep` package exposes arbitrary caller-supplied paths; TALOS needs the search surface constrained to `MINECRAFT_SERVER_DIR` for safe default operation.
+- Read-only behavior is the default user experience. TALOS hides the official filesystem server's write-capable tools unless `MINECRAFT_MCP_ALLOW_WRITES=1` is set explicitly.
+- Install prerequisites:
+  - Node.js with `npx`
+  - `rg` on PATH, for example `brew install ripgrep`
+  - access to `@modelcontextprotocol/server-filesystem`, usually via `npx -y`
+- Recommended `.env` settings:
+
+```env
+MINECRAFT_SERVER_DIR=/absolute/path/to/minecraft-server
+MINECRAFT_MCP_ALLOW_WRITES=0
+```
+
+- Restart TALOS after changing `.env` so the MCP list is rebuilt.
+- Verify the setup with:
+
+```bash
+.venv-main/bin/python tools/verify_minecraft_mcp_setup.py
+```
+
+- Example prompt:
+
+```text
+Diagnose my Forge server. Start with logs/latest.log and the newest crash report. Find the most likely bad config, mod, datapack, or script. Do not modify files; give me ranked suspects with evidence.
+```
+
+- More detailed setup and safety guidance lives in [docs/minecraft-forge-diagnostics.md](/Users/jacksal1/Desktop/Talos/Talos/docs/minecraft-forge-diagnostics.md).
+
 To add a new MCP tool in an existing domain:
 
 1. Add the real logic to the relevant service module, such as `talos/services/home_automation.py`.

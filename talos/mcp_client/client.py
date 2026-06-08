@@ -36,6 +36,29 @@ _DEFERRED_LIFECYCLE_MODES = {
     LIFECYCLE_SIDECAR_AUTOSTART,
 }
 
+DEFAULT_FILESYSTEM_SERVER_NAME = "filesystem"
+DEFAULT_FILESYSTEM_TOOL_PREFIX = "fs_"
+DEFAULT_MINECRAFT_FILESYSTEM_SERVER_NAME = "minecraft-filesystem"
+DEFAULT_MINECRAFT_SEARCH_SERVER_NAME = "minecraft-search"
+DEFAULT_MINECRAFT_FILESYSTEM_TOOL_PREFIX = "minecraft_fs_"
+DEFAULT_MINECRAFT_SEARCH_TOOL_PREFIX = "minecraft_"
+FILESYSTEM_MUTATING_TOOLS = {
+    "create_directory",
+    "write_file",
+    "edit_file",
+    "move_file",
+    "delete_file",
+    "delete_directory",
+}
+MINECRAFT_FILESYSTEM_MUTATING_TOOLS = {
+    "create_directory",
+    "write_file",
+    "edit_file",
+    "move_file",
+    "delete_file",
+    "delete_directory",
+}
+
 
 @dataclass
 class McpServerConfig:
@@ -573,6 +596,8 @@ class LocalMcpClient:
                 raw_name = getattr(tool, "name")
                 if not raw_name:
                     raise McpProtocolError(f"MCP server '{config.name}' returned a tool without a name.")
+                if self._should_hide_tool(config, raw_name):
+                    continue
 
                 exposed_name = config.exposed_tool_name(raw_name)
                 existing = routes.get(exposed_name)
@@ -1226,6 +1251,37 @@ class LocalMcpClient:
         asyncio.set_event_loop(loop)
         loop.run_forever()
 
+    @staticmethod
+    def _filesystem_server_name() -> str:
+        return (
+            os.getenv("TALOS_FILESYSTEM_SERVER_NAME", DEFAULT_FILESYSTEM_SERVER_NAME).strip()
+            or DEFAULT_FILESYSTEM_SERVER_NAME
+        )
+
+    @staticmethod
+    def _minecraft_filesystem_server_name() -> str:
+        return (
+            os.getenv("MINECRAFT_MCP_FILESYSTEM_SERVER_NAME", DEFAULT_MINECRAFT_FILESYSTEM_SERVER_NAME)
+            .strip()
+            or DEFAULT_MINECRAFT_FILESYSTEM_SERVER_NAME
+        )
+
+    @classmethod
+    def _should_hide_tool(cls, config: McpServerConfig, raw_name: str) -> bool:
+        if (
+            config.name == cls._filesystem_server_name()
+            and not _filesystem_writes_allowed()
+            and raw_name in FILESYSTEM_MUTATING_TOOLS
+        ):
+            return True
+        if (
+            config.name == cls._minecraft_filesystem_server_name()
+            and not _minecraft_fs_writes_allowed()
+            and raw_name in MINECRAFT_FILESYSTEM_MUTATING_TOOLS
+        ):
+            return True
+        return False
+
     def _run_coro(self, coro):
         if self._loop is None:
             raise RuntimeError("Local MCP loop is not running.")
@@ -1325,6 +1381,163 @@ def _default_local_server_config() -> McpServerConfig:
     )
 
 
+def _filesystem_writes_allowed() -> bool:
+    raw = os.getenv("TALOS_FILESYSTEM_ALLOW_WRITES", "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _resolve_allowed_root_paths(raw_value: str) -> list[Path]:
+    raw = str(raw_value or "").strip()
+    if not raw:
+        return []
+
+    parts: list[str]
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        parts = [part.strip() for part in raw.split(os.pathsep) if part.strip()]
+    else:
+        if isinstance(parsed, str):
+            parts = [parsed.strip()] if parsed.strip() else []
+        elif isinstance(parsed, list):
+            parts = [str(item).strip() for item in parsed if str(item).strip()]
+        else:
+            raise ValueError(
+                "Filesystem roots must be a JSON string, a JSON array of paths, "
+                f"or an {os.pathsep!r}-separated string."
+            )
+
+    repo_root = Path(__file__).resolve().parents[2]
+    resolved: list[Path] = []
+    seen: set[Path] = set()
+    for item in parts:
+        candidate = Path(item).expanduser()
+        if not candidate.is_absolute():
+            candidate = (repo_root / candidate).resolve()
+        else:
+            candidate = candidate.resolve()
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        resolved.append(candidate)
+    return resolved
+
+
+def _optional_filesystem_server_config() -> McpServerConfig | None:
+    roots = _resolve_allowed_root_paths(os.getenv("TALOS_FILESYSTEM_ROOTS", ""))
+    if not roots:
+        return None
+
+    command = os.getenv("TALOS_FILESYSTEM_COMMAND", "npx").strip() or "npx"
+    package = (
+        os.getenv(
+            "TALOS_FILESYSTEM_PACKAGE",
+            "@modelcontextprotocol/server-filesystem",
+        ).strip()
+        or "@modelcontextprotocol/server-filesystem"
+    )
+    args = [package, *[str(root) for root in roots]]
+    if command == "npx":
+        args.insert(0, "-y")
+
+    return McpServerConfig(
+        name=os.getenv("TALOS_FILESYSTEM_SERVER_NAME", DEFAULT_FILESYSTEM_SERVER_NAME).strip()
+        or DEFAULT_FILESYSTEM_SERVER_NAME,
+        transport="stdio",
+        command=command,
+        args=args,
+        tool_prefix=os.getenv("TALOS_FILESYSTEM_TOOL_PREFIX", DEFAULT_FILESYSTEM_TOOL_PREFIX).strip()
+        or DEFAULT_FILESYSTEM_TOOL_PREFIX,
+        timeout_seconds=float(os.getenv("TALOS_FILESYSTEM_TIMEOUT", "120")),
+        mode=os.getenv("TALOS_FILESYSTEM_MODE", "").strip(),
+    )
+
+
+def _minecraft_fs_writes_allowed() -> bool:
+    raw = os.getenv("MINECRAFT_MCP_ALLOW_WRITES", "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _resolve_minecraft_server_root() -> Path | None:
+    raw_root = os.getenv("MINECRAFT_SERVER_DIR", "").strip()
+    if not raw_root:
+        return None
+
+    repo_root = Path(__file__).resolve().parents[2]
+    root = Path(raw_root).expanduser()
+    if not root.is_absolute():
+        root = (repo_root / root).resolve()
+    return root
+
+
+def _optional_minecraft_server_configs() -> list[McpServerConfig]:
+    root = _resolve_minecraft_server_root()
+    if root is None:
+        return []
+
+    mode = os.getenv("MINECRAFT_MCP_MODE", "").strip()
+    filesystem_timeout = float(os.getenv("MINECRAFT_MCP_FILESYSTEM_TIMEOUT", "120"))
+    search_timeout = float(os.getenv("MINECRAFT_MCP_SEARCH_TIMEOUT", "30"))
+
+    filesystem_command = os.getenv("MINECRAFT_MCP_FILESYSTEM_COMMAND", "npx").strip() or "npx"
+    filesystem_package = (
+        os.getenv(
+            "MINECRAFT_MCP_FILESYSTEM_PACKAGE",
+            "@modelcontextprotocol/server-filesystem",
+        ).strip()
+        or "@modelcontextprotocol/server-filesystem"
+    )
+    filesystem_args = [filesystem_package, str(root)]
+    if filesystem_command == "npx":
+        filesystem_args.insert(0, "-y")
+
+    return [
+        McpServerConfig(
+            name=(
+                os.getenv(
+                    "MINECRAFT_MCP_FILESYSTEM_SERVER_NAME",
+                    DEFAULT_MINECRAFT_FILESYSTEM_SERVER_NAME,
+                ).strip()
+                or DEFAULT_MINECRAFT_FILESYSTEM_SERVER_NAME
+            ),
+            transport="stdio",
+            command=filesystem_command,
+            args=filesystem_args,
+            tool_prefix=(
+                os.getenv(
+                    "MINECRAFT_MCP_FILESYSTEM_TOOL_PREFIX",
+                    DEFAULT_MINECRAFT_FILESYSTEM_TOOL_PREFIX,
+                ).strip()
+                or DEFAULT_MINECRAFT_FILESYSTEM_TOOL_PREFIX
+            ),
+            timeout_seconds=filesystem_timeout,
+            mode=mode,
+        ),
+        McpServerConfig(
+            name=(
+                os.getenv(
+                    "MINECRAFT_MCP_SEARCH_SERVER_NAME",
+                    DEFAULT_MINECRAFT_SEARCH_SERVER_NAME,
+                ).strip()
+                or DEFAULT_MINECRAFT_SEARCH_SERVER_NAME
+            ),
+            transport="stdio",
+            command=os.getenv("MINECRAFT_MCP_SEARCH_COMMAND", "").strip() or sys.executable,
+            args=["-m", "talos.mcp_minecraft_diagnostics_server"],
+            env={"MINECRAFT_SERVER_DIR": str(root)},
+            tool_prefix=(
+                os.getenv(
+                    "MINECRAFT_MCP_SEARCH_TOOL_PREFIX",
+                    DEFAULT_MINECRAFT_SEARCH_TOOL_PREFIX,
+                ).strip()
+                or DEFAULT_MINECRAFT_SEARCH_TOOL_PREFIX
+            ),
+            timeout_seconds=search_timeout,
+            mode=mode,
+        ),
+    ]
+
+
 def _resolve_kicad_mode() -> str:
     """Determine KiCad's lifecycle mode from env.
 
@@ -1420,9 +1633,13 @@ def _load_mcp_server_configs() -> list[McpServerConfig]:
     raw_config = os.getenv("TALOS_MCP_SERVERS", "").strip()
     if not raw_config:
         configs = [_default_local_server_config()]
+        filesystem_config = _optional_filesystem_server_config()
+        if filesystem_config is not None:
+            configs.append(filesystem_config)
         kicad_config = _optional_kicad_server_config()
         if kicad_config is not None:
             configs.append(kicad_config)
+        configs.extend(_optional_minecraft_server_configs())
         return configs
 
     try:
@@ -1496,9 +1713,21 @@ def _load_mcp_server_configs() -> list[McpServerConfig]:
             )
         )
 
+    filesystem_config = _optional_filesystem_server_config()
+    if filesystem_config is not None and filesystem_config.name not in seen_names:
+        configs.append(filesystem_config)
+        seen_names.add(filesystem_config.name)
+
     kicad_config = _optional_kicad_server_config()
     if kicad_config is not None and kicad_config.name not in seen_names:
         configs.append(kicad_config)
+        seen_names.add(kicad_config.name)
+
+    for config in _optional_minecraft_server_configs():
+        if config.name in seen_names:
+            continue
+        configs.append(config)
+        seen_names.add(config.name)
 
     return configs
 
