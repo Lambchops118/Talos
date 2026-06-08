@@ -200,6 +200,7 @@ def _poll_session_events(
     stop_events: threading.Event,
 ) -> None:
     after_id = _initial_event_cursor(base_url, token, session_id, timeout)
+    synced = after_id > 0
     while not stop_events.wait(max(0.5, DEFAULT_EVENT_POLL_SECONDS)):
         try:
             payload = list_session_events(
@@ -213,6 +214,11 @@ def _poll_session_events(
             continue
 
         events = payload.get("events") or []
+        if not synced:
+            after_id = _latest_event_cursor(payload, minimum=after_id)
+            synced = True
+            continue
+
         for event in events:
             try:
                 after_id = max(after_id, int(event.get("id") or 0))
@@ -233,8 +239,20 @@ def _initial_event_cursor(base_url: str, token: str, session_id: str, timeout: f
         )
     except Exception:
         return 0
+    return _latest_event_cursor(payload)
+
+
+def _latest_event_cursor(payload: dict, *, minimum: int = 0) -> int:
     events = payload.get("events") or []
-    cursor = 0
+    cursor = _max_event_id(events, minimum=minimum)
+    try:
+        return max(cursor, int(payload.get("latest_event_id") or 0))
+    except (TypeError, ValueError):
+        return cursor
+
+
+def _max_event_id(events: list[dict], *, minimum: int = 0) -> int:
+    cursor = max(0, int(minimum))
     for event in events:
         try:
             cursor = max(cursor, int(event.get("id") or 0))

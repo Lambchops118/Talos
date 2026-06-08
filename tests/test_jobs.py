@@ -40,6 +40,35 @@ class JobStoreTests(unittest.TestCase):
         self.assertEqual(loaded.status, "queued")
         self.assertEqual(events[0].event_type, "queued")
 
+    def test_latest_session_event_id_returns_highest_event_id(self) -> None:
+        store = JobStore(":memory:")
+        try:
+            first = store.create_job(
+                session_id="session-c",
+                source="terminal",
+                request_text="First request",
+            )
+            store.add_event(
+                job_id=first.job_id,
+                session_id=first.session_id,
+                event_type="queued",
+                message="Queued first job.",
+            )
+            second = store.create_job(
+                session_id="session-c",
+                source="terminal",
+                request_text="Second request",
+            )
+            latest = store.add_event(
+                job_id=second.job_id,
+                session_id=second.session_id,
+                event_type="completed",
+                message="Completed second job.",
+            )
+            self.assertEqual(store.latest_session_event_id("session-c"), latest.id)
+        finally:
+            store.close()
+
     def test_manager_runs_job_and_records_completion(self) -> None:
         store = JobStore(":memory:")
         manager = JobManager(lambda job: f"done: {job.request_text}", store=store)

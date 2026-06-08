@@ -144,6 +144,9 @@ class TextAgentRequestHandler(BaseHTTPRequestHandler):
         self._write_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "Not found"})
 
     def log_message(self, fmt: str, *args: Any) -> None:
+        path = urlparse(self.path).path
+        if self.command == "GET" and path.startswith("/sessions/") and path.endswith("/events"):
+            return
         print(f"[text-agent] {self.address_string()} - {fmt % args}")
 
     def _authorize_request(self, *, require_token: bool) -> bool:
@@ -273,11 +276,13 @@ class TextAgentRequestHandler(BaseHTTPRequestHandler):
             after_id=after_id,
             limit=limit,
         )
+        latest_event_id = get_default_job_store().latest_session_event_id(session_id)
         self._write_json(
             HTTPStatus.OK,
             {
                 "ok": True,
                 "session_id": session_id,
+                "latest_event_id": latest_event_id,
                 "events": [event.to_dict() for event in events],
             },
         )

@@ -289,6 +289,20 @@ class JobStore:
             ).fetchall()
         return [_event_from_row(row) for row in rows]
 
+    def latest_session_event_id(self, session_id: str) -> int:
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT COALESCE(MAX(id), 0) AS latest_id
+                FROM job_events
+                WHERE session_id = ?
+                """,
+                (_required_text(session_id, "session_id"),),
+            ).fetchone()
+        if row is None:
+            return 0
+        return int(row["latest_id"] or 0)
+
     def mark_incomplete_jobs_interrupted(self) -> int:
         now = _utc_now()
         with self._lock:
