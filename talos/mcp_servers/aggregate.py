@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .base import create_server, register_all
-from .providers import register_home_automation_tools
+from .providers import register_home_automation_tools, register_kitchen_recipe_screen_tools
 
 
 def create_aggregate_server():
@@ -19,5 +19,6 @@ def create_aggregate_server():
         server,
         [
             register_home_automation_tools,
+            register_kitchen_recipe_screen_tools,
         ],
     )

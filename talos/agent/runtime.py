@@ -13,6 +13,7 @@ from talos.agent.prompting import DEFAULT_DOMAIN_OVERLAYS, PromptContext, build_
 from talos.config import env_bool, env_float, env_int, load_environment, require_env
 from talos.memory import MemoryStore, get_default_memory_store
 from talos.mcp_client import get_local_mcp_client, shutdown_local_mcp_client
+from talos.tool_arguments import parse_tool_arguments
 
 
 load_environment()
@@ -767,16 +768,7 @@ def _maybe_add_kicad_preflight(
 
 
 def _parse_function_arguments(arguments: Any) -> dict[str, Any]:
-    if arguments in (None, ""):
-        return {}
-    if isinstance(arguments, dict):
-        return arguments
-    if isinstance(arguments, str):
-        parsed = json.loads(arguments)
-        if not isinstance(parsed, dict):
-            raise ValueError("Tool arguments must decode to a JSON object.")
-        return parsed
-    raise TypeError("Tool arguments must be a dict, JSON string, or None.")
+    return parse_tool_arguments(arguments)
 
 
 def _truncate_text(value: str, limit: int = TOOL_OUTPUT_CHAR_LIMIT) -> str:

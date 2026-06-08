@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from talos.tool_arguments import parse_tool_arguments
+
 
 class McpProtocolError(RuntimeError):
     pass
@@ -1249,16 +1251,7 @@ class LocalMcpClient:
 
     @staticmethod
     def _parse_arguments(arguments: str | dict[str, Any] | None) -> dict[str, Any]:
-        if arguments in (None, ""):
-            return {}
-        if isinstance(arguments, dict):
-            return arguments
-        if isinstance(arguments, str):
-            parsed = json.loads(arguments)
-            if not isinstance(parsed, dict):
-                raise ValueError("Tool arguments must decode to a JSON object.")
-            return parsed
-        raise TypeError("Tool arguments must be a dict, JSON string, or None.")
+        return parse_tool_arguments(arguments)
 
     @staticmethod
     def _extract_text(result: Any) -> str:

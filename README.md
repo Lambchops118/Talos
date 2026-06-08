@@ -111,6 +111,8 @@ If two servers expose the same tool name, you must set a `tool_prefix` on at lea
 
 Tool implementations are registered in provider modules under `talos/mcp_servers/providers/`. The existing home automation tools are defined in `talos/mcp_servers/providers/home_automation.py` with `@server.tool()` decorators, and their actual device logic lives in `talos/services/home_automation.py`.
 
+The built-in local aggregate MCP server now also includes a kitchen recipe screen domain. Those tools live in `talos/mcp_servers/providers/kitchen_recipe_screen.py` and talk to the browser kiosk over HTTP through `talos/services/kitchen_recipe_screen.py`.
+
 The home automation provider also exposes:
 
 - `get_current_datetime`, which gives the agent the current local date, time, weekday, year, and timezone. Set `TALOS_TIMEZONE` in `.env` to force an IANA timezone such as `America/New_York`; otherwise TALOS falls back to the host machine's local timezone.
@@ -120,6 +122,7 @@ Server assembly is separate from tool definition:
 
 - `talos/mcp_servers/aggregate.py` defines the tool surface used by the local agent runtime.
 - `talos/mcp_servers/home_automation_server.py` and `talos/mcp_servers/tv_control_server.py` expose standalone servers for specific domains.
+- `talos/mcp_servers/kitchen_recipe_screen_server.py` exposes the kitchen recipe screen tool domain as its own MCP server.
 - `talos/mcp_http_app.py` mounts those domain servers over HTTP.
 
 Example `TALOS_MCP_SERVERS` value:
@@ -183,6 +186,12 @@ def set_thermostat(target_f: int) -> str:
     """Set the thermostat to the requested Fahrenheit temperature."""
     return actions.set_thermostat(target_f)
 ```
+
+Kitchen recipe screen configuration:
+
+- `KITCHEN_RECIPE_SCREEN_URL` points TALOS at the browser kiosk server, defaulting to `http://127.0.0.1:8765`.
+- `KITCHEN_RECIPE_SCREEN_TIMEOUT` controls the per-request timeout in seconds, default `10`.
+- The kitchen screen tools can read/write recipe title, servings, ingredients, steps, notes, timer state, and the top-row link indicator.
 
 To add a new MCP tool domain:
 
