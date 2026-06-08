@@ -32,16 +32,24 @@ function formatDisplayTime(totalSeconds) {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
+function sanitizeIngredientText(value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+  return text.replace(/^\s*(?:[-*]\s*)?\[(?:\s|x|X)\]\s*/, "");
+}
+
 function renderIngredients(ingredients) {
   elements.ingredientsList.innerHTML = "";
   elements.ingredientsCount.textContent = `${ingredients.length} item${ingredients.length === 1 ? "" : "s"}`;
   ingredients.forEach((item) => {
     const li = document.createElement("li");
     li.className = `ingredient-item${item.checked ? " checked" : ""}`;
-    li.innerHTML = `
-      <span class="ingredient-marker">${item.checked ? "[X]" : "[ ]"}</span>
-      <span class="ingredient-text">${item.text || ""}</span>
-    `;
+    const span = document.createElement("span");
+    span.className = "ingredient-text";
+    span.textContent = sanitizeIngredientText(item.text);
+    li.appendChild(span);
     elements.ingredientsList.appendChild(li);
   });
 }

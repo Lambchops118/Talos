@@ -162,7 +162,7 @@ body::before {
 
 .topbar {
   display: grid;
-  grid-template-columns: 180px 210px minmax(300px, 1fr) 200px;
+  grid-template-columns: 180px 210px minmax(250px, 0.9fr) 200px;
   align-items: stretch;
   gap: 12px;
   min-height: 104px;
@@ -210,7 +210,7 @@ body::before {
 .timer-inline {
   display: grid;
   gap: 4px;
-  padding: 8px 12px;
+  padding: 6px 10px;
   min-width: 0;
 }
 
@@ -286,7 +286,7 @@ body::before {
 
 .timer-label {
   margin: 0;
-  font-size: 22px;
+  font-size: 20px;
   color: var(--phosphor-soft);
 }
 
@@ -316,12 +316,6 @@ body::before {
 .ingredient-item.checked .ingredient-text,
 .step-card.done .step-text {
   text-decoration: line-through;
-}
-
-.ingredient-marker {
-  display: inline-block;
-  width: 28px;
-  color: var(--warning);
 }
 
 .step-list {
@@ -361,7 +355,7 @@ body::before {
 
 .timer-display {
   margin: 0;
-  font-size: 64px;
+  font-size: 56px;
   line-height: 0.82;
   color: var(--warning);
 }

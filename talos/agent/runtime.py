@@ -39,6 +39,7 @@ OPENAI_SERVER_ERROR_RETRY_JITTER = max(
 OPENAI_SERVER_ERROR_RECOVERY_ATTEMPTS = max(
     0, env_int("TALOS_OPENAI_SERVER_ERROR_RECOVERY_ATTEMPTS", 1)
 )
+AGENT_MAX_OUTPUT_TOKENS = max(150, env_int("TALOS_AGENT_MAX_OUTPUT_TOKENS", 400))
 KICAD_TOOL_PREFIX = os.getenv("KICAD_MCP_TOOL_PREFIX", "kicad_").strip() or "kicad_"
 TOOL_OUTPUT_CHAR_LIMIT = max(256, env_int("TALOS_TOOL_OUTPUT_CHAR_LIMIT", 4000))
 TOOL_OUTPUT_SUMMARY_ENABLED = env_bool("TALOS_SUMMARIZE_TOOL_OUTPUTS", True)
@@ -1218,7 +1219,7 @@ def run_command(
                 "tools": tool_defs,
                 "input": input_items,
                 "temperature": 0.5,
-                "max_output_tokens": 150,
+                "max_output_tokens": AGENT_MAX_OUTPUT_TOKENS,
             }
             previous_response_id = _get_last_response_id(thread_key)
             if previous_response_id:
@@ -1262,7 +1263,7 @@ def run_command(
                         input=tool_outputs,
                         previous_response_id=response.id,
                         temperature=0.5,
-                        max_output_tokens=150,
+                        max_output_tokens=AGENT_MAX_OUTPUT_TOKENS,
                     )
                 except Exception as exc:
                     if not _is_server_error(exc):
@@ -1288,7 +1289,7 @@ def run_command(
                             tools=tool_defs,
                             input=recovery_input_items,
                             temperature=0.5,
-                            max_output_tokens=150,
+                            max_output_tokens=AGENT_MAX_OUTPUT_TOKENS,
                         )
                         continue
 

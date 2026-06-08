@@ -153,6 +153,7 @@ Notes:
 - Remote MCP entries may also set `tls_verify: false` to disable certificate verification for that one server, or `tls_ca_bundle` to point at a custom CA bundle when Python cannot validate the server certificate chain on the current machine.
 - Use `tool_prefix` when a remote server might expose names that collide with local tools.
 - TALOS now supports multi-step tool execution loops. Set `TALOS_MAX_TOOL_CALL_ROUNDS` in `.env` if you need to raise or lower the default limit of `8`.
+- Set `TALOS_AGENT_MAX_OUTPUT_TOKENS` in `.env` if tool-calling requests need more room to emit long structured arguments, such as full recipe step lists. The default is `400`.
 - Resource reads are text-first. Binary resources are surfaced with MIME metadata and a base64 preview so the model can reason about what is available without flooding context.
 
 KiCad helper integration:
