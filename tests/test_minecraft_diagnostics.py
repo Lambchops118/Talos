@@ -12,7 +12,38 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from talos.agent import runtime as agent_runtime
+from talos.filesystem_diagnostics import MultiRootFilesystemDiagnostics
 from talos.minecraft_diagnostics import MinecraftDiagnostics
+
+
+class FilesystemDiagnosticsTests(unittest.TestCase):
+    def test_multi_root_search_uses_explicit_root(self) -> None:
+        with tempfile.TemporaryDirectory() as root_a, tempfile.TemporaryDirectory() as root_b:
+            path_a = Path(root_a) / "alpha.txt"
+            path_b = Path(root_b) / "beta.txt"
+            path_a.write_text("apple\n", encoding="utf-8")
+            path_b.write_text("banana\n", encoding="utf-8")
+
+            diagnostics = MultiRootFilesystemDiagnostics.from_roots([Path(root_a), Path(root_b)])
+            result = diagnostics.search_text(pattern="banana", root=root_b)
+
+        self.assertEqual(result["root"], str(Path(root_b).resolve()))
+        self.assertTrue(result["matches_found"])
+        self.assertIn("beta.txt", result["output"])
+
+    def test_multi_root_compare_text_files_supports_cross_root_diffs(self) -> None:
+        with tempfile.TemporaryDirectory() as root_a, tempfile.TemporaryDirectory() as root_b:
+            path_a = Path(root_a) / "config.toml"
+            path_b = Path(root_b) / "config.toml"
+            path_a.write_text("enabled = true\n", encoding="utf-8")
+            path_b.write_text("enabled = false\n", encoding="utf-8")
+
+            diagnostics = MultiRootFilesystemDiagnostics.from_roots([Path(root_a), Path(root_b)])
+            result = diagnostics.compare_text_files(path_a=str(path_a), path_b=str(path_b))
+
+        self.assertFalse(result["identical"])
+        self.assertIn("-enabled = true", result["diff"])
+        self.assertIn("+enabled = false", result["diff"])
 
 
 class MinecraftDiagnosticsTests(unittest.TestCase):
@@ -72,6 +103,14 @@ class MinecraftPromptOverlayTests(unittest.TestCase):
             )
 
         self.assertIn("minecraft", overlays)
+
+    def test_runtime_does_not_add_minecraft_overlay_for_generic_latest_log_request(self) -> None:
+        overlays = agent_runtime._domain_overlays_for_command(
+            "Please inspect /var/log/latest.log for errors",
+            [],
+        )
+
+        self.assertNotIn("minecraft", overlays)
 
 
 if __name__ == "__main__":

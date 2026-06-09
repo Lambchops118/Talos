@@ -440,7 +440,7 @@ class LocalMcpClientResourceTests(unittest.TestCase):
 
         self.assertEqual(
             [config.name for config in configs],
-            ["talos-local", "filesystem"],
+            ["talos-local", "filesystem", "filesystem-diagnostics"],
         )
         self.assertEqual(configs[1].command, "npx")
         self.assertEqual(
@@ -448,6 +448,8 @@ class LocalMcpClientResourceTests(unittest.TestCase):
             ["-y", "@modelcontextprotocol/server-filesystem", str(Path(tmpdir).resolve())],
         )
         self.assertEqual(configs[1].tool_prefix, "fs_")
+        self.assertEqual(configs[2].command, sys.executable)
+        self.assertEqual(configs[2].args, ["-m", "talos.mcp_filesystem_diagnostics_server"])
 
     def test_load_mcp_server_configs_accepts_multiple_general_filesystem_roots(self) -> None:
         with tempfile.TemporaryDirectory() as root_a, tempfile.TemporaryDirectory() as root_b:
@@ -467,6 +469,22 @@ class LocalMcpClientResourceTests(unittest.TestCase):
                 str(Path(root_a).resolve()),
                 str(Path(root_b).resolve()),
             ],
+        )
+
+    def test_load_mcp_server_configs_adds_filesystem_diagnostics_with_resolved_roots(self) -> None:
+        with tempfile.TemporaryDirectory() as root_a, tempfile.TemporaryDirectory() as root_b:
+            env = {
+                "TALOS_MCP_SERVERS": "",
+                "TALOS_FILESYSTEM_ROOTS": json.dumps([root_a, root_b]),
+            }
+            with patch.dict(os.environ, env, clear=False):
+                configs = local_mcp_client._load_mcp_server_configs()
+
+        diagnostics = configs[2]
+        self.assertEqual(diagnostics.name, "filesystem-diagnostics")
+        self.assertEqual(
+            json.loads(diagnostics.env["TALOS_FILESYSTEM_ROOTS"]),
+            [str(Path(root_a).resolve()), str(Path(root_b).resolve())],
         )
 
     def test_load_mcp_server_configs_appends_optional_minecraft_servers(self) -> None:
@@ -497,6 +515,7 @@ class LocalMcpClientResourceTests(unittest.TestCase):
                 transport="stdio",
                 command="node",
                 tool_prefix=local_mcp_client.DEFAULT_FILESYSTEM_TOOL_PREFIX,
+                kind=local_mcp_client.FILESYSTEM_CONFIG_KIND,
             )
         ]
         client = TestableLocalMcpClient(configs)
@@ -530,6 +549,7 @@ class LocalMcpClientResourceTests(unittest.TestCase):
                 transport="stdio",
                 command="node",
                 tool_prefix=local_mcp_client.DEFAULT_MINECRAFT_FILESYSTEM_TOOL_PREFIX,
+                kind=local_mcp_client.MINECRAFT_FILESYSTEM_CONFIG_KIND,
             )
         ]
         client = TestableLocalMcpClient(configs)
@@ -555,6 +575,32 @@ class LocalMcpClientResourceTests(unittest.TestCase):
                 "minecraft_fs_read_text_file",
             ],
         )
+
+    def test_custom_named_filesystem_server_still_hides_writes_by_kind(self) -> None:
+        configs = [
+            local_mcp_client.McpServerConfig(
+                name="project-files",
+                transport="stdio",
+                command="node",
+                tool_prefix="fs_",
+                kind=local_mcp_client.FILESYSTEM_CONFIG_KIND,
+            )
+        ]
+        client = TestableLocalMcpClient(configs)
+        client._connections = {
+            configs[0].name: FakeConnection(
+                name=configs[0].name,
+                tools=[
+                    Obj(name="list_directory", description="List"),
+                    Obj(name="write_file", description="Write"),
+                ],
+            )
+        }
+
+        with patch.dict(os.environ, {"TALOS_FILESYSTEM_ALLOW_WRITES": "0"}, clear=False):
+            tools = client.list_tools()
+
+        self.assertEqual([tool["name"] for tool in tools], ["fs_list_directory"])
 
     def test_kicad_tool_call_normalizes_missing_root_paths(self) -> None:
         configs = [local_mcp_client.McpServerConfig(name="kicad", transport="stdio", command="node")]

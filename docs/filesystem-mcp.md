@@ -1,6 +1,11 @@
 # Filesystem MCP Support
 
-TALOS can now attach the official `@modelcontextprotocol/server-filesystem` server for general-purpose file inspection and editing.
+TALOS can attach a general local-filesystem toolset instead of a Minecraft-specific one-off workflow.
+
+When `TALOS_FILESYSTEM_ROOTS` is configured, TALOS appends two complementary MCP servers:
+
+- the official `@modelcontextprotocol/server-filesystem` server for directory listing, metadata, reads, and optional writes
+- a TALOS-owned diagnostics server for shallow tree summaries, recent-file inspection, root-scoped ripgrep search, and text diffs
 
 ## Configuration
 
@@ -18,12 +23,14 @@ Notes:
   - a single JSON string path
   - a plain platform-separated string, though JSON is preferred
 - Relative paths are resolved relative to the TALOS repo root.
-- TALOS prefixes official filesystem tools with `fs_` by default.
+- TALOS prefixes both filesystem toolsets with `fs_` by default.
+- If multiple roots are configured, the diagnostics tools accept an optional `root` argument so the agent can target a specific configured root.
 
 ## Safety Defaults
 
 - The official filesystem server is limited to the configured roots only.
-- TALOS hides write-capable tools by default.
+- The TALOS diagnostics server enforces the same root scope.
+- TALOS hides write-capable filesystem tools by default.
 - To expose writes, set:
 
 ```env
@@ -34,14 +41,17 @@ Even with writes exposed, TALOS's prompt guidance still prefers explaining evide
 
 ## What This Enables
 
-Once configured, TALOS can use the official filesystem MCP toolset for:
+Once configured, TALOS can use the combined filesystem MCP toolset for:
 
 - listing directories
 - building directory trees
+- finding recent files
 - reading text files
 - reading media files
 - getting file metadata
 - searching for files by name/pattern
+- searching file contents with ripgrep
+- diffing text files
 - editing/writing/moving files when writes are enabled
 
 ## Verification
@@ -56,7 +66,8 @@ The smoke check verifies:
 
 1. Filesystem MCP tools are visible.
 2. The configured root can be listed.
-3. Access outside the configured roots is rejected.
+3. The TALOS diagnostics search tools are visible and can search inside the root.
+4. Access outside the configured roots is rejected.
 
 ## Interaction Style
 

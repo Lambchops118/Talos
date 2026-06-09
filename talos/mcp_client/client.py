@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from talos.filesystem_diagnostics import resolve_allowed_root_paths as _resolve_allowed_root_paths
 from talos.tool_arguments import parse_tool_arguments
 
 
@@ -37,6 +38,7 @@ _DEFERRED_LIFECYCLE_MODES = {
 }
 
 DEFAULT_FILESYSTEM_SERVER_NAME = "filesystem"
+DEFAULT_FILESYSTEM_DIAGNOSTICS_SERVER_NAME = "filesystem-diagnostics"
 DEFAULT_FILESYSTEM_TOOL_PREFIX = "fs_"
 DEFAULT_MINECRAFT_FILESYSTEM_SERVER_NAME = "minecraft-filesystem"
 DEFAULT_MINECRAFT_SEARCH_SERVER_NAME = "minecraft-search"
@@ -58,6 +60,10 @@ MINECRAFT_FILESYSTEM_MUTATING_TOOLS = {
     "delete_file",
     "delete_directory",
 }
+FILESYSTEM_CONFIG_KIND = "filesystem"
+FILESYSTEM_DIAGNOSTICS_CONFIG_KIND = "filesystem_diagnostics"
+MINECRAFT_FILESYSTEM_CONFIG_KIND = "minecraft_filesystem"
+MINECRAFT_DIAGNOSTICS_CONFIG_KIND = "minecraft_diagnostics"
 
 
 @dataclass
@@ -77,6 +83,7 @@ class McpServerConfig:
     env: dict[str, str] = field(default_factory=dict)
     timeout_seconds: float = 30.0
     mode: str = ""
+    kind: str = ""
 
     def normalized_transport(self) -> str:
         transport = self.transport.strip().lower().replace("-", "_")
@@ -1269,13 +1276,13 @@ class LocalMcpClient:
     @classmethod
     def _should_hide_tool(cls, config: McpServerConfig, raw_name: str) -> bool:
         if (
-            config.name == cls._filesystem_server_name()
+            _is_general_filesystem_config(config)
             and not _filesystem_writes_allowed()
             and raw_name in FILESYSTEM_MUTATING_TOOLS
         ):
             return True
         if (
-            config.name == cls._minecraft_filesystem_server_name()
+            _is_minecraft_filesystem_config(config)
             and not _minecraft_fs_writes_allowed()
             and raw_name in MINECRAFT_FILESYSTEM_MUTATING_TOOLS
         ):
@@ -1386,41 +1393,34 @@ def _filesystem_writes_allowed() -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
-def _resolve_allowed_root_paths(raw_value: str) -> list[Path]:
-    raw = str(raw_value or "").strip()
-    if not raw:
-        return []
+def _normalized_kind(config: McpServerConfig) -> str:
+    return str(config.kind or "").strip().lower()
 
-    parts: list[str]
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError:
-        parts = [part.strip() for part in raw.split(os.pathsep) if part.strip()]
-    else:
-        if isinstance(parsed, str):
-            parts = [parsed.strip()] if parsed.strip() else []
-        elif isinstance(parsed, list):
-            parts = [str(item).strip() for item in parsed if str(item).strip()]
-        else:
-            raise ValueError(
-                "Filesystem roots must be a JSON string, a JSON array of paths, "
-                f"or an {os.pathsep!r}-separated string."
-            )
 
-    repo_root = Path(__file__).resolve().parents[2]
-    resolved: list[Path] = []
-    seen: set[Path] = set()
-    for item in parts:
-        candidate = Path(item).expanduser()
-        if not candidate.is_absolute():
-            candidate = (repo_root / candidate).resolve()
-        else:
-            candidate = candidate.resolve()
-        if candidate in seen:
-            continue
-        seen.add(candidate)
-        resolved.append(candidate)
-    return resolved
+def _is_general_filesystem_config(config: McpServerConfig) -> bool:
+    kind = _normalized_kind(config)
+    if kind:
+        return kind == FILESYSTEM_CONFIG_KIND
+    return config.name == LocalMcpClient._filesystem_server_name()
+
+
+def _is_minecraft_filesystem_config(config: McpServerConfig) -> bool:
+    kind = _normalized_kind(config)
+    if kind:
+        return kind == MINECRAFT_FILESYSTEM_CONFIG_KIND
+    return config.name == LocalMcpClient._minecraft_filesystem_server_name()
+
+
+def _infer_config_kind(name: str, args: list[str], tool_prefix: str, raw_kind: str | None = None) -> str:
+    normalized_kind = str(raw_kind or "").strip().lower()
+    if normalized_kind:
+        return normalized_kind
+
+    if any("@modelcontextprotocol/server-filesystem" in str(arg) for arg in args):
+        if tool_prefix.startswith(DEFAULT_MINECRAFT_FILESYSTEM_TOOL_PREFIX) or "minecraft" in name.lower():
+            return MINECRAFT_FILESYSTEM_CONFIG_KIND
+        return FILESYSTEM_CONFIG_KIND
+    return ""
 
 
 def _optional_filesystem_server_config() -> McpServerConfig | None:
@@ -1450,6 +1450,44 @@ def _optional_filesystem_server_config() -> McpServerConfig | None:
         or DEFAULT_FILESYSTEM_TOOL_PREFIX,
         timeout_seconds=float(os.getenv("TALOS_FILESYSTEM_TIMEOUT", "120")),
         mode=os.getenv("TALOS_FILESYSTEM_MODE", "").strip(),
+        kind=FILESYSTEM_CONFIG_KIND,
+    )
+
+
+def _optional_filesystem_diagnostics_server_config() -> McpServerConfig | None:
+    roots = _resolve_allowed_root_paths(os.getenv("TALOS_FILESYSTEM_ROOTS", ""))
+    if not roots:
+        return None
+
+    env = {
+        "TALOS_FILESYSTEM_ROOTS": json.dumps([str(root) for root in roots]),
+    }
+    for key in (
+        "TALOS_FILESYSTEM_RG_TIMEOUT",
+        "TALOS_FILESYSTEM_MAX_TEXT_BYTES",
+        "TALOS_FILESYSTEM_DEFAULT_EXCLUDES",
+    ):
+        value = os.getenv(key, "").strip()
+        if value:
+            env[key] = value
+
+    return McpServerConfig(
+        name=(
+            os.getenv(
+                "TALOS_FILESYSTEM_DIAGNOSTICS_SERVER_NAME",
+                DEFAULT_FILESYSTEM_DIAGNOSTICS_SERVER_NAME,
+            ).strip()
+            or DEFAULT_FILESYSTEM_DIAGNOSTICS_SERVER_NAME
+        ),
+        transport="stdio",
+        command=sys.executable,
+        args=["-m", "talos.mcp_filesystem_diagnostics_server"],
+        env=env,
+        tool_prefix=os.getenv("TALOS_FILESYSTEM_TOOL_PREFIX", DEFAULT_FILESYSTEM_TOOL_PREFIX).strip()
+        or DEFAULT_FILESYSTEM_TOOL_PREFIX,
+        timeout_seconds=float(os.getenv("TALOS_FILESYSTEM_DIAGNOSTICS_TIMEOUT", "120")),
+        mode=os.getenv("TALOS_FILESYSTEM_MODE", "").strip(),
+        kind=FILESYSTEM_DIAGNOSTICS_CONFIG_KIND,
     )
 
 
@@ -1512,6 +1550,7 @@ def _optional_minecraft_server_configs() -> list[McpServerConfig]:
             ),
             timeout_seconds=filesystem_timeout,
             mode=mode,
+            kind=MINECRAFT_FILESYSTEM_CONFIG_KIND,
         ),
         McpServerConfig(
             name=(
@@ -1534,6 +1573,7 @@ def _optional_minecraft_server_configs() -> list[McpServerConfig]:
             ),
             timeout_seconds=search_timeout,
             mode=mode,
+            kind=MINECRAFT_DIAGNOSTICS_CONFIG_KIND,
         ),
     ]
 
@@ -1636,6 +1676,9 @@ def _load_mcp_server_configs() -> list[McpServerConfig]:
         filesystem_config = _optional_filesystem_server_config()
         if filesystem_config is not None:
             configs.append(filesystem_config)
+        filesystem_diagnostics_config = _optional_filesystem_diagnostics_server_config()
+        if filesystem_diagnostics_config is not None:
+            configs.append(filesystem_diagnostics_config)
         kicad_config = _optional_kicad_server_config()
         if kicad_config is not None:
             configs.append(kicad_config)
@@ -1710,6 +1753,12 @@ def _load_mcp_server_configs() -> list[McpServerConfig]:
                 env={str(key): str(value) for key, value in env.items()},
                 timeout_seconds=float(timeout_seconds),
                 mode=str(item.get("mode") or ""),
+                kind=_infer_config_kind(
+                    name=name,
+                    args=[str(arg) for arg in args],
+                    tool_prefix=str(item.get("tool_prefix") or ""),
+                    raw_kind=_optional_str(item.get("kind")),
+                ),
             )
         )
 
@@ -1717,6 +1766,14 @@ def _load_mcp_server_configs() -> list[McpServerConfig]:
     if filesystem_config is not None and filesystem_config.name not in seen_names:
         configs.append(filesystem_config)
         seen_names.add(filesystem_config.name)
+
+    filesystem_diagnostics_config = _optional_filesystem_diagnostics_server_config()
+    if (
+        filesystem_diagnostics_config is not None
+        and filesystem_diagnostics_config.name not in seen_names
+    ):
+        configs.append(filesystem_diagnostics_config)
+        seen_names.add(filesystem_diagnostics_config.name)
 
     kicad_config = _optional_kicad_server_config()
     if kicad_config is not None and kicad_config.name not in seen_names:

@@ -32,10 +32,34 @@ def main() -> int:
 
         _expect("fs_list_directory" in tool_names, "fs_list_directory tool is not visible")
         _expect("fs_get_file_info" in tool_names, "fs_get_file_info tool is not visible")
+        _expect("fs_search_text" in tool_names, "fs_search_text tool is not visible")
 
         root = roots[0]
         listing = client.call_tool("fs_list_directory", {"path": str(root)})
         _expect(listing.strip() != "", "filesystem MCP returned an empty root listing")
+
+        marker = root / ".talos-fs-verify.txt"
+        search_preview_source = "existing-files fallback"
+        try:
+            marker.write_text("filesystem verify marker\n", encoding="utf-8")
+            search_pattern = "filesystem verify marker"
+            search_preview_source = str(marker)
+        except OSError:
+            search_pattern = "the"
+
+        try:
+            search_result = client.call_tool(
+                "fs_search_text",
+                {
+                    "pattern": search_pattern,
+                    "root": str(root),
+                    "relative_path": ".",
+                    "max_results": 5,
+                },
+            )
+        finally:
+            marker.unlink(missing_ok=True)
+        _expect(search_result.strip() != "", "filesystem diagnostics search returned an empty response")
 
         try:
             client.call_tool("fs_get_file_info", {"path": str(root.parent)})
@@ -49,6 +73,8 @@ def main() -> int:
             "roots": [str(root_path) for root_path in roots],
             "tool_count": len(tool_names),
             "filesystem_root_listing_preview": listing.splitlines()[:10],
+            "filesystem_search_source": search_preview_source,
+            "filesystem_search_preview": search_result.splitlines()[:10],
         }
         print(json.dumps(summary, indent=2))
         return 0

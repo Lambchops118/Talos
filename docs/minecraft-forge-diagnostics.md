@@ -2,6 +2,8 @@
 
 This TALOS checkout can attach a Minecraft-focused MCP toolset for diagnosing large Forge or modpack server directories without granting broad filesystem access.
 
+This is a specialization on top of TALOS's general filesystem support, not the core filesystem design. If you want broad local-machine inspection/search capability, start with `TALOS_FILESYSTEM_ROOTS`; use this helper when Minecraft-specific heuristics are valuable.
+
 ## What Gets Added
 
 When `MINECRAFT_SERVER_DIR` is set, TALOS appends two MCP servers at startup:

@@ -160,17 +160,10 @@ MINECRAFT_RELEVANT_TERMS = {
     "modloadingexception",
 }
 MINECRAFT_PATH_HINTS = (
-    "latest.log",
-    "debug.log",
-    "crash-reports",
-    "config/",
-    "defaultconfigs/",
     "world/serverconfig/",
-    "mods/",
+    "defaultconfigs/",
     "kubejs/",
-    "scripts/",
     "datapacks/",
-    "server.properties",
     "forge-server.toml",
 )
 KICAD_SCHEMATIC_TO_BOARD_TERMS = {
@@ -669,11 +662,11 @@ def _is_minecraft_request(command: str, tool_defs: list[dict[str, Any]]) -> bool
         return True
     if "minecraft" in lowered or "forge" in lowered or "modpack" in lowered or "kubejs" in lowered:
         return True
-    if any(hint in lowered for hint in MINECRAFT_PATH_HINTS):
-        return True
     if not _has_minecraft_tools(tool_defs):
         return False
-    return bool(_tokenize_lowered(command) & MINECRAFT_RELEVANT_TERMS)
+    if bool(_tokenize_lowered(command) & MINECRAFT_RELEVANT_TERMS):
+        return True
+    return any(hint in lowered for hint in MINECRAFT_PATH_HINTS)
 
 
 def _format_kicad_backend_context(raw_output: str, command: str) -> str | None:
