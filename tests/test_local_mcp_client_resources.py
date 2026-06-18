@@ -487,6 +487,97 @@ class LocalMcpClientResourceTests(unittest.TestCase):
             [str(Path(root_a).resolve()), str(Path(root_b).resolve())],
         )
 
+    def test_load_mcp_server_configs_appends_optional_git_server(self) -> None:
+        with tempfile.TemporaryDirectory() as repo_dir:
+            env = {
+                "TALOS_MCP_SERVERS": "",
+                "TALOS_GIT_MCP_ENABLED": "1",
+                "TALOS_GIT_REPOSITORY": repo_dir,
+            }
+            with patch.dict(os.environ, env, clear=False):
+                configs = local_mcp_client._load_mcp_server_configs()
+
+        self.assertEqual([config.name for config in configs], ["talos-local", "git"])
+        self.assertEqual(configs[1].command, "uvx")
+        self.assertEqual(
+            configs[1].args,
+            ["mcp-server-git", "--repository", str(Path(repo_dir).resolve())],
+        )
+        self.assertEqual(configs[1].tool_prefix, "git_")
+
+    def test_load_mcp_server_configs_appends_optional_remote_github_server(self) -> None:
+        env = {
+            "TALOS_MCP_SERVERS": "",
+            "TALOS_GITHUB_MCP_ENABLED": "1",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            configs = local_mcp_client._load_mcp_server_configs()
+
+        self.assertEqual([config.name for config in configs], ["talos-local", "github"])
+        self.assertEqual(configs[1].transport, "streamable_http")
+        self.assertEqual(configs[1].url, "https://api.githubcopilot.com/mcp/")
+        self.assertEqual(configs[1].auth_token_env, "GITHUB_PERSONAL_ACCESS_TOKEN")
+        self.assertEqual(configs[1].tool_prefix, "github_")
+
+    def test_load_mcp_server_configs_appends_optional_language_server(self) -> None:
+        with tempfile.TemporaryDirectory() as workspace:
+            env = {
+                "TALOS_MCP_SERVERS": "",
+                "TALOS_LANGUAGE_SERVER_MCP_ENABLED": "1",
+                "TALOS_LANGUAGE_SERVER_WORKSPACE": workspace,
+            }
+            with patch.dict(os.environ, env, clear=False):
+                configs = local_mcp_client._load_mcp_server_configs()
+
+        self.assertEqual([config.name for config in configs], ["talos-local", "language-server"])
+        self.assertEqual(configs[1].command, "mcp-language-server")
+        self.assertEqual(
+            configs[1].args,
+            [
+                "--workspace",
+                str(Path(workspace).resolve()),
+                "--lsp",
+                "pyright-langserver",
+                "--",
+                "--stdio",
+            ],
+        )
+        self.assertEqual(configs[1].tool_prefix, "lsp_")
+
+    def test_load_mcp_server_configs_appends_optional_context7_server(self) -> None:
+        env = {
+            "TALOS_MCP_SERVERS": "",
+            "TALOS_CONTEXT7_MCP_ENABLED": "1",
+            "CONTEXT7_API_KEY": "ctx7-secret",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            configs = local_mcp_client._load_mcp_server_configs()
+
+        self.assertEqual([config.name for config in configs], ["talos-local", "context7"])
+        self.assertEqual(configs[1].transport, "streamable_http")
+        self.assertEqual(configs[1].url, "https://mcp.context7.com/mcp")
+        self.assertEqual(configs[1].headers["CONTEXT7_API_KEY"], "ctx7-secret")
+        self.assertEqual(configs[1].tool_prefix, "context7_")
+
+    def test_load_mcp_server_configs_appends_coding_agent_servers_together(self) -> None:
+        with tempfile.TemporaryDirectory() as repo_dir, tempfile.TemporaryDirectory() as workspace:
+            env = {
+                "TALOS_MCP_SERVERS": "",
+                "TALOS_GIT_MCP_ENABLED": "1",
+                "TALOS_GIT_REPOSITORY": repo_dir,
+                "TALOS_GITHUB_MCP_ENABLED": "1",
+                "TALOS_LANGUAGE_SERVER_MCP_ENABLED": "1",
+                "TALOS_LANGUAGE_SERVER_WORKSPACE": workspace,
+                "TALOS_CONTEXT7_MCP_ENABLED": "1",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                configs = local_mcp_client._load_mcp_server_configs()
+
+        self.assertEqual(
+            [config.name for config in configs],
+            ["talos-local", "git", "github", "language-server", "context7"],
+        )
+
     def test_load_mcp_server_configs_appends_optional_minecraft_servers(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             env = {

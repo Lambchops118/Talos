@@ -199,6 +199,22 @@ TALOS_FILESYSTEM_ALLOW_WRITES=0
 
 - More detailed setup notes live in [docs/filesystem-mcp.md](/Users/jacksal1/Desktop/Talos/Talos/docs/filesystem-mcp.md).
 
+Coding-agent MCP support:
+
+- TALOS can append four optional coding-focused providers:
+  - `git` for local diff/status/commit-aware workflows
+  - `github` for PRs, issues, Actions, repo metadata, and remote code access
+  - `language-server` for semantic definitions, references, diagnostics, hover, and rename
+  - `context7` for current dependency and library docs
+- These providers are opt-in through `.env` flags:
+  - `TALOS_GIT_MCP_ENABLED=1`
+  - `TALOS_GITHUB_MCP_ENABLED=1`
+  - `TALOS_LANGUAGE_SERVER_MCP_ENABLED=1`
+  - `TALOS_CONTEXT7_MCP_ENABLED=1`
+- The default GitHub mode uses the official remote GitHub MCP endpoint at `https://api.githubcopilot.com/mcp/` with `GITHUB_PERSONAL_ACCESS_TOKEN`.
+- The default language-server setup targets Python repos with `pyright-langserver --stdio`, but the LSP backend is configurable.
+- More detailed setup notes live in [docs/coding-agent-mcp.md](/Users/jacksal1/Desktop/Talos/Talos/docs/coding-agent-mcp.md).
+
 Minecraft Forge/modpack diagnostics:
 
 - Set `MINECRAFT_SERVER_DIR` to a modded server root and TALOS will append two MCP servers automatically:

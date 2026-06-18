@@ -40,6 +40,14 @@ _DEFERRED_LIFECYCLE_MODES = {
 DEFAULT_FILESYSTEM_SERVER_NAME = "filesystem"
 DEFAULT_FILESYSTEM_DIAGNOSTICS_SERVER_NAME = "filesystem-diagnostics"
 DEFAULT_FILESYSTEM_TOOL_PREFIX = "fs_"
+DEFAULT_GIT_SERVER_NAME = "git"
+DEFAULT_GIT_TOOL_PREFIX = "git_"
+DEFAULT_GITHUB_SERVER_NAME = "github"
+DEFAULT_GITHUB_TOOL_PREFIX = "github_"
+DEFAULT_LANGUAGE_SERVER_NAME = "language-server"
+DEFAULT_LANGUAGE_SERVER_TOOL_PREFIX = "lsp_"
+DEFAULT_CONTEXT7_SERVER_NAME = "context7"
+DEFAULT_CONTEXT7_TOOL_PREFIX = "context7_"
 DEFAULT_MINECRAFT_FILESYSTEM_SERVER_NAME = "minecraft-filesystem"
 DEFAULT_MINECRAFT_SEARCH_SERVER_NAME = "minecraft-search"
 DEFAULT_MINECRAFT_FILESYSTEM_TOOL_PREFIX = "minecraft_fs_"
@@ -60,6 +68,10 @@ MINECRAFT_FILESYSTEM_MUTATING_TOOLS = {
     "delete_file",
     "delete_directory",
 }
+GIT_CONFIG_KIND = "git"
+GITHUB_CONFIG_KIND = "github"
+LANGUAGE_SERVER_CONFIG_KIND = "language_server"
+CONTEXT7_CONFIG_KIND = "context7"
 FILESYSTEM_CONFIG_KIND = "filesystem"
 FILESYSTEM_DIAGNOSTICS_CONFIG_KIND = "filesystem_diagnostics"
 MINECRAFT_FILESYSTEM_CONFIG_KIND = "minecraft_filesystem"
@@ -1420,6 +1432,14 @@ def _infer_config_kind(name: str, args: list[str], tool_prefix: str, raw_kind: s
         if tool_prefix.startswith(DEFAULT_MINECRAFT_FILESYSTEM_TOOL_PREFIX) or "minecraft" in name.lower():
             return MINECRAFT_FILESYSTEM_CONFIG_KIND
         return FILESYSTEM_CONFIG_KIND
+    if "mcp-server-git" in " ".join(args) or tool_prefix.startswith(DEFAULT_GIT_TOOL_PREFIX):
+        return GIT_CONFIG_KIND
+    if "mcp-language-server" in " ".join(args) or tool_prefix.startswith(DEFAULT_LANGUAGE_SERVER_TOOL_PREFIX):
+        return LANGUAGE_SERVER_CONFIG_KIND
+    if "context7" in name.lower() or tool_prefix.startswith(DEFAULT_CONTEXT7_TOOL_PREFIX):
+        return CONTEXT7_CONFIG_KIND
+    if "github" in name.lower() or tool_prefix.startswith(DEFAULT_GITHUB_TOOL_PREFIX):
+        return GITHUB_CONFIG_KIND
     return ""
 
 
@@ -1488,6 +1508,201 @@ def _optional_filesystem_diagnostics_server_config() -> McpServerConfig | None:
         timeout_seconds=float(os.getenv("TALOS_FILESYSTEM_DIAGNOSTICS_TIMEOUT", "120")),
         mode=os.getenv("TALOS_FILESYSTEM_MODE", "").strip(),
         kind=FILESYSTEM_DIAGNOSTICS_CONFIG_KIND,
+    )
+
+
+def _repo_root_path() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def _resolve_local_path(raw_path: str, *, default: Path | None = None) -> Path | None:
+    normalized = str(raw_path or "").strip()
+    if not normalized:
+        return default.resolve() if default is not None else None
+    path = Path(normalized).expanduser()
+    if not path.is_absolute():
+        path = (_repo_root_path() / path).resolve()
+    else:
+        path = path.resolve()
+    return path
+
+
+def _env_enabled(name: str) -> bool:
+    return str(os.getenv(name, "")).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _optional_json_string_list(raw_value: str, *, env_name: str) -> list[str]:
+    raw = str(raw_value or "").strip()
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{env_name} must be valid JSON.") from exc
+    if not isinstance(parsed, list):
+        raise ValueError(f"{env_name} must decode to a JSON array.")
+    return [str(item) for item in parsed]
+
+
+def _optional_git_server_config() -> McpServerConfig | None:
+    if not _env_enabled("TALOS_GIT_MCP_ENABLED"):
+        return None
+
+    repository = _resolve_local_path(
+        os.getenv("TALOS_GIT_REPOSITORY", ""),
+        default=_repo_root_path(),
+    )
+    if repository is None:
+        return None
+
+    command = os.getenv("TALOS_GIT_MCP_COMMAND", "uvx").strip() or "uvx"
+    package = os.getenv("TALOS_GIT_MCP_PACKAGE", "mcp-server-git").strip() or "mcp-server-git"
+    if command == "uvx":
+        args = [package, "--repository", str(repository)]
+    elif command in {"python", "python3", sys.executable}:
+        args = ["-m", "mcp_server_git", "--repository", str(repository)]
+    elif Path(command).name == package:
+        args = ["--repository", str(repository)]
+    else:
+        args = [package, "--repository", str(repository)]
+
+    return McpServerConfig(
+        name=os.getenv("TALOS_GIT_SERVER_NAME", DEFAULT_GIT_SERVER_NAME).strip()
+        or DEFAULT_GIT_SERVER_NAME,
+        transport="stdio",
+        command=command,
+        args=args,
+        tool_prefix=os.getenv("TALOS_GIT_TOOL_PREFIX", DEFAULT_GIT_TOOL_PREFIX).strip()
+        or DEFAULT_GIT_TOOL_PREFIX,
+        timeout_seconds=float(os.getenv("TALOS_GIT_MCP_TIMEOUT", "60")),
+        mode=os.getenv("TALOS_GIT_MCP_MODE", "").strip(),
+        kind=GIT_CONFIG_KIND,
+    )
+
+
+def _optional_github_server_config() -> McpServerConfig | None:
+    if not _env_enabled("TALOS_GITHUB_MCP_ENABLED"):
+        return None
+
+    mode = os.getenv("TALOS_GITHUB_MCP_MODE", "remote").strip().lower() or "remote"
+    name = os.getenv("TALOS_GITHUB_SERVER_NAME", DEFAULT_GITHUB_SERVER_NAME).strip() or DEFAULT_GITHUB_SERVER_NAME
+    tool_prefix = (
+        os.getenv("TALOS_GITHUB_TOOL_PREFIX", DEFAULT_GITHUB_TOOL_PREFIX).strip()
+        or DEFAULT_GITHUB_TOOL_PREFIX
+    )
+    timeout_seconds = float(os.getenv("TALOS_GITHUB_MCP_TIMEOUT", "120"))
+
+    if mode in {"remote", "http", "streamable_http"}:
+        return McpServerConfig(
+            name=name,
+            transport="streamable_http",
+            url=os.getenv("TALOS_GITHUB_MCP_URL", "https://api.githubcopilot.com/mcp/").strip()
+            or "https://api.githubcopilot.com/mcp/",
+            auth_token_env=os.getenv("TALOS_GITHUB_MCP_TOKEN_ENV", "GITHUB_PERSONAL_ACCESS_TOKEN").strip()
+            or "GITHUB_PERSONAL_ACCESS_TOKEN",
+            tool_prefix=tool_prefix,
+            timeout_seconds=timeout_seconds,
+            mode=os.getenv("TALOS_GITHUB_MCP_PROVIDER_MODE", "").strip(),
+            kind=GITHUB_CONFIG_KIND,
+        )
+
+    if mode not in {"local", "docker", "binary"}:
+        raise ValueError("TALOS_GITHUB_MCP_MODE must be remote, local, docker, or binary.")
+
+    command = os.getenv("TALOS_GITHUB_MCP_COMMAND", "docker").strip() or "docker"
+    token_env_name = os.getenv("TALOS_GITHUB_MCP_TOKEN_ENV", "GITHUB_PERSONAL_ACCESS_TOKEN").strip() or "GITHUB_PERSONAL_ACCESS_TOKEN"
+    token_value = os.getenv(token_env_name, "").strip()
+    github_host = os.getenv("GITHUB_HOST", "").strip()
+    env: dict[str, str] = {}
+    if token_value:
+        env[token_env_name] = token_value
+    if github_host:
+        env["GITHUB_HOST"] = github_host
+
+    if mode in {"local", "docker"} and command == "docker":
+        args = ["run", "-i", "--rm", "-e", token_env_name]
+        if github_host:
+            args.extend(["-e", "GITHUB_HOST"])
+        args.append("ghcr.io/github/github-mcp-server")
+    else:
+        args = ["stdio"]
+        if github_host:
+            args.extend(["--gh-host", github_host])
+
+    return McpServerConfig(
+        name=name,
+        transport="stdio",
+        command=command,
+        args=args,
+        env=env,
+        tool_prefix=tool_prefix,
+        timeout_seconds=timeout_seconds,
+        mode=os.getenv("TALOS_GITHUB_MCP_PROVIDER_MODE", "").strip(),
+        kind=GITHUB_CONFIG_KIND,
+    )
+
+
+def _optional_language_server_config() -> McpServerConfig | None:
+    if not _env_enabled("TALOS_LANGUAGE_SERVER_MCP_ENABLED"):
+        return None
+
+    workspace = _resolve_local_path(
+        os.getenv("TALOS_LANGUAGE_SERVER_WORKSPACE", ""),
+        default=_repo_root_path(),
+    )
+    if workspace is None:
+        return None
+
+    lsp_command = os.getenv("TALOS_LANGUAGE_SERVER_LSP", "pyright-langserver").strip() or "pyright-langserver"
+    lsp_args = _optional_json_string_list(
+        os.getenv("TALOS_LANGUAGE_SERVER_LSP_ARGS_JSON", '["--stdio"]'),
+        env_name="TALOS_LANGUAGE_SERVER_LSP_ARGS_JSON",
+    )
+    args = ["--workspace", str(workspace), "--lsp", lsp_command]
+    if lsp_args:
+        args.append("--")
+        args.extend(lsp_args)
+
+    return McpServerConfig(
+        name=(
+            os.getenv("TALOS_LANGUAGE_SERVER_NAME", DEFAULT_LANGUAGE_SERVER_NAME).strip()
+            or DEFAULT_LANGUAGE_SERVER_NAME
+        ),
+        transport="stdio",
+        command=os.getenv("TALOS_LANGUAGE_SERVER_COMMAND", "mcp-language-server").strip()
+        or "mcp-language-server",
+        args=args,
+        tool_prefix=(
+            os.getenv("TALOS_LANGUAGE_SERVER_TOOL_PREFIX", DEFAULT_LANGUAGE_SERVER_TOOL_PREFIX).strip()
+            or DEFAULT_LANGUAGE_SERVER_TOOL_PREFIX
+        ),
+        timeout_seconds=float(os.getenv("TALOS_LANGUAGE_SERVER_TIMEOUT", "120")),
+        mode=os.getenv("TALOS_LANGUAGE_SERVER_MODE", "").strip(),
+        kind=LANGUAGE_SERVER_CONFIG_KIND,
+    )
+
+
+def _optional_context7_server_config() -> McpServerConfig | None:
+    if not _env_enabled("TALOS_CONTEXT7_MCP_ENABLED"):
+        return None
+
+    headers: dict[str, str] = {}
+    api_key = os.getenv("CONTEXT7_API_KEY", "").strip()
+    if api_key:
+        headers["CONTEXT7_API_KEY"] = api_key
+
+    return McpServerConfig(
+        name=os.getenv("TALOS_CONTEXT7_SERVER_NAME", DEFAULT_CONTEXT7_SERVER_NAME).strip()
+        or DEFAULT_CONTEXT7_SERVER_NAME,
+        transport="streamable_http",
+        url=os.getenv("TALOS_CONTEXT7_MCP_URL", "https://mcp.context7.com/mcp").strip()
+        or "https://mcp.context7.com/mcp",
+        headers=headers,
+        tool_prefix=os.getenv("TALOS_CONTEXT7_TOOL_PREFIX", DEFAULT_CONTEXT7_TOOL_PREFIX).strip()
+        or DEFAULT_CONTEXT7_TOOL_PREFIX,
+        timeout_seconds=float(os.getenv("TALOS_CONTEXT7_TIMEOUT", "60")),
+        mode=os.getenv("TALOS_CONTEXT7_MODE", "").strip(),
+        kind=CONTEXT7_CONFIG_KIND,
     )
 
 
@@ -1679,6 +1894,18 @@ def _load_mcp_server_configs() -> list[McpServerConfig]:
         filesystem_diagnostics_config = _optional_filesystem_diagnostics_server_config()
         if filesystem_diagnostics_config is not None:
             configs.append(filesystem_diagnostics_config)
+        git_config = _optional_git_server_config()
+        if git_config is not None:
+            configs.append(git_config)
+        github_config = _optional_github_server_config()
+        if github_config is not None:
+            configs.append(github_config)
+        language_server_config = _optional_language_server_config()
+        if language_server_config is not None:
+            configs.append(language_server_config)
+        context7_config = _optional_context7_server_config()
+        if context7_config is not None:
+            configs.append(context7_config)
         kicad_config = _optional_kicad_server_config()
         if kicad_config is not None:
             configs.append(kicad_config)
@@ -1774,6 +2001,26 @@ def _load_mcp_server_configs() -> list[McpServerConfig]:
     ):
         configs.append(filesystem_diagnostics_config)
         seen_names.add(filesystem_diagnostics_config.name)
+
+    git_config = _optional_git_server_config()
+    if git_config is not None and git_config.name not in seen_names:
+        configs.append(git_config)
+        seen_names.add(git_config.name)
+
+    github_config = _optional_github_server_config()
+    if github_config is not None and github_config.name not in seen_names:
+        configs.append(github_config)
+        seen_names.add(github_config.name)
+
+    language_server_config = _optional_language_server_config()
+    if language_server_config is not None and language_server_config.name not in seen_names:
+        configs.append(language_server_config)
+        seen_names.add(language_server_config.name)
+
+    context7_config = _optional_context7_server_config()
+    if context7_config is not None and context7_config.name not in seen_names:
+        configs.append(context7_config)
+        seen_names.add(context7_config.name)
 
     kicad_config = _optional_kicad_server_config()
     if kicad_config is not None and kicad_config.name not in seen_names:
