@@ -68,6 +68,10 @@ HOST_TOOL_NAMES = {
     "start_mcp_server",
     "remember_memory_fact",
     "list_memory_facts",
+    "place_phone_call",
+    "phone_call_status",
+    "recent_phone_calls",
+    "summarize_phone_call",
 }
 
 KICAD_PREFERRED_TOOL_SUFFIXES = {
@@ -341,6 +345,93 @@ def _resource_tool_definitions() -> list[dict[str, Any]]:
                         "description": "Maximum facts to return. Defaults to 8.",
                     },
                 },
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "place_phone_call",
+            "description": (
+                "Place an outbound phone call through the configured ElevenLabs/Twilio phone agent. "
+                "Use this only when the user directly asks you to make the call now. "
+                "The target must be either a configured contact name or an allowlisted E.164 number."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "contact_or_number": {
+                        "type": "string",
+                        "description": "Configured contact name or allowlisted E.164 number to call.",
+                    },
+                    "purpose": {
+                        "type": "string",
+                        "description": "Short reason for the call.",
+                    },
+                    "brief_context": {
+                        "type": "string",
+                        "description": "Optional concise context the phone agent should know before the call starts.",
+                    },
+                },
+                "required": ["contact_or_number"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "phone_call_status",
+            "description": "Read the current status, transcript, and metadata for one phone call by call id.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "call_id": {
+                        "type": "string",
+                        "description": "The TALOS phone call id, usually the ElevenLabs conversation id.",
+                    },
+                    "refresh": {
+                        "type": "boolean",
+                        "description": "Refresh from the configured phone bridge before reading the status. Defaults to true.",
+                    },
+                },
+                "required": ["call_id"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "recent_phone_calls",
+            "description": "List recent phone calls known to TALOS, including inbound and outbound calls.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum calls to return. Defaults to 10.",
+                    },
+                    "refresh": {
+                        "type": "boolean",
+                        "description": "Refresh from the configured phone bridge before listing calls. Defaults to true.",
+                    },
+                },
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "summarize_phone_call",
+            "description": "Return a compact TALOS summary of a phone call by call id.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "call_id": {
+                        "type": "string",
+                        "description": "The TALOS phone call id, usually the ElevenLabs conversation id.",
+                    },
+                    "refresh": {
+                        "type": "boolean",
+                        "description": "Refresh from the configured phone bridge before summarizing the call. Defaults to true.",
+                    },
+                },
+                "required": ["call_id"],
                 "additionalProperties": False,
             },
         },
@@ -1116,6 +1207,7 @@ def _invoke_host_tool(
     arguments: Any,
     *,
     session_id: str = "default",
+    runtime_lane: str = "foreground",
 ) -> str:
     parsed_arguments = _parse_function_arguments(arguments)
     if name == "list_mcp_resources":
@@ -1204,6 +1296,45 @@ def _invoke_host_tool(
                 ],
             }
         )
+    if name == "place_phone_call":
+        from talos.phone import place_phone_call
+
+        return json.dumps(
+            place_phone_call(
+                str(parsed_arguments.get("contact_or_number") or ""),
+                purpose=str(parsed_arguments.get("purpose") or ""),
+                brief_context=str(parsed_arguments.get("brief_context") or ""),
+                session_id=session_id,
+                runtime_lane=runtime_lane,
+            )
+        )
+    if name == "phone_call_status":
+        from talos.phone import phone_call_status
+
+        return json.dumps(
+            phone_call_status(
+                str(parsed_arguments.get("call_id") or ""),
+                refresh=bool(parsed_arguments.get("refresh", True)),
+            )
+        )
+    if name == "recent_phone_calls":
+        from talos.phone import recent_phone_calls
+
+        return json.dumps(
+            recent_phone_calls(
+                limit=int(parsed_arguments.get("limit") or 10),
+                refresh=bool(parsed_arguments.get("refresh", True)),
+            )
+        )
+    if name == "summarize_phone_call":
+        from talos.phone import summarize_phone_call
+
+        return json.dumps(
+            summarize_phone_call(
+                str(parsed_arguments.get("call_id") or ""),
+                refresh=bool(parsed_arguments.get("refresh", True)),
+            )
+        )
     raise KeyError(name)
 
 
@@ -1212,6 +1343,7 @@ def _collect_tool_outputs(
     mcp_client: Any,
     *,
     session_id: str = "default",
+    runtime_lane: str = "foreground",
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     tool_outputs = []
     tool_events: list[dict[str, Any]] = []
@@ -1227,6 +1359,7 @@ def _collect_tool_outputs(
                     item.name,
                     item.arguments,
                     session_id=session_id,
+                    runtime_lane=runtime_lane,
                 )
             else:
                 result = mcp_client.call_tool(item.name, item.arguments)
@@ -1327,6 +1460,7 @@ def run_command(
                     response,
                     mcp_client,
                     session_id=session_id,
+                    runtime_lane=runtime_lane,
                 )
                 if recent_events:
                     tool_events.extend(recent_events)
