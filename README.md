@@ -1,10 +1,11 @@
-# TALOS
+# B.U.T.L.E.R
+## Better Understanding Text-to-Speech Large Language Encoder Routine
 
 [![CI](https://github.com/Lambchops118/Talos/actions/workflows/ci.yml/badge.svg)](https://github.com/Lambchops118/Talos/actions/workflows/ci.yml)
 [![Latest Release](https://img.shields.io/github/v/release/Lambchops118/Talos)](https://github.com/Lambchops118/Talos/releases)
 [![Last Commit](https://img.shields.io/github/last-commit/Lambchops118/Talos)](https://github.com/Lambchops118/Talos/commits/main)
 
-TALOS is a home automation and voice-assistant project built around a Python host application, MQTT-connected peripherals, and a display-driven "Monkey Butler" interface.
+Monkey Butler is an artificial butler built around a locally hosted agent structure with access to peripherals and built in speech interface.
 
 ## Project Layout
 
