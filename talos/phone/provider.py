@@ -22,6 +22,8 @@ class OutboundCallRequest:
     purpose: str = ""
     brief_context: str = ""
     contact_name: str | None = None
+    message_to_deliver: str = ""
+    caller_identity: str = "TALOS"
 
 
 @dataclass(frozen=True)

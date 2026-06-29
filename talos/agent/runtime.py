@@ -163,6 +163,13 @@ MINECRAFT_RELEVANT_TERMS = {
     "mixin",
     "modloadingexception",
 }
+PHONE_RELEVANT_TERMS = {
+    "call",
+    "phone",
+    "dial",
+    "ring",
+    "voice",
+}
 MINECRAFT_PATH_HINTS = (
     "world/serverconfig/",
     "defaultconfigs/",
@@ -354,7 +361,9 @@ def _resource_tool_definitions() -> list[dict[str, Any]]:
             "description": (
                 "Place an outbound phone call through the configured ElevenLabs/Twilio phone agent. "
                 "Use this only when the user directly asks you to make the call now. "
-                "The target must be either a configured contact name or an allowlisted E.164 number."
+                "The target must be either a configured contact name or an allowlisted E.164 number. "
+                "If the user wants you to report weather, KiCad status, or any other result, gather that information first, "
+                "then pass the exact spoken report in message_to_deliver."
             ),
             "parameters": {
                 "type": "object",
@@ -370,6 +379,10 @@ def _resource_tool_definitions() -> list[dict[str, Any]]:
                     "brief_context": {
                         "type": "string",
                         "description": "Optional concise context the phone agent should know before the call starts.",
+                    },
+                    "message_to_deliver": {
+                        "type": "string",
+                        "description": "The exact report or message the phone agent should deliver on the call after introducing itself as TALOS.",
                     },
                 },
                 "required": ["contact_or_number"],
@@ -583,6 +596,8 @@ def _domain_overlays_for_command(command: str, tool_defs: list[dict[str, Any]]) 
         overlays.append("kicad")
     if _is_minecraft_request(command, tool_defs):
         overlays.append("minecraft")
+    if _is_phone_request(command, tool_defs):
+        overlays.append("phone")
     return tuple(overlays)
 
 
@@ -758,6 +773,15 @@ def _is_minecraft_request(command: str, tool_defs: list[dict[str, Any]]) -> bool
     if bool(_tokenize_lowered(command) & MINECRAFT_RELEVANT_TERMS):
         return True
     return any(hint in lowered for hint in MINECRAFT_PATH_HINTS)
+
+
+def _is_phone_request(command: str, tool_defs: list[dict[str, Any]]) -> bool:
+    lowered = command.lower()
+    if "place_phone_call" in lowered:
+        return True
+    if not any(str(tool.get("name") or "") == "place_phone_call" for tool in tool_defs):
+        return False
+    return bool(_tokenize_lowered(command) & PHONE_RELEVANT_TERMS)
 
 
 def _format_kicad_backend_context(raw_output: str, command: str) -> str | None:
@@ -1304,6 +1328,7 @@ def _invoke_host_tool(
                 str(parsed_arguments.get("contact_or_number") or ""),
                 purpose=str(parsed_arguments.get("purpose") or ""),
                 brief_context=str(parsed_arguments.get("brief_context") or ""),
+                message_to_deliver=str(parsed_arguments.get("message_to_deliver") or ""),
                 session_id=session_id,
                 runtime_lane=runtime_lane,
             )

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from typing import Any
 
 from talos.phone.provider import OutboundCallRequest, PhoneConfig, PhoneProvider
@@ -31,12 +32,7 @@ class ElevenLabsTwilioProvider(PhoneProvider):
             "agent_id": self.config.agent_id,
             "agent_phone_number_id": self.config.phone_number_id,
             "to_number": request.to_number,
-            "conversation_initiation_client_data": {
-                "session_id": request.session_id,
-                "purpose": request.purpose,
-                "brief_context": request.brief_context,
-                "contact_name": request.contact_name or "",
-            },
+            "conversation_initiation_client_data": _build_conversation_initiation_client_data(request),
         }
         response = self._request_json(
             "https://api.elevenlabs.io/v1/convai/twilio/outbound-call",
@@ -111,6 +107,21 @@ class ElevenLabsTwilioProvider(PhoneProvider):
 
     def sync_call_snapshot(self, snapshot: dict[str, Any]) -> PhoneCallRecord:
         return self.store.upsert_snapshot(snapshot)
+
+    def fetch_call_details(self, call_id: str) -> PhoneCallRecord:
+        response = self._request_json(
+            f"https://api.elevenlabs.io/v1/convai/conversations/{call_id}",
+            method="GET",
+        )
+        snapshot = _snapshot_from_conversation_details(response, self.store.get_call(call_id))
+        updated = self.store.upsert_snapshot(snapshot)
+        self.store.add_event(
+            call_id=updated.call_id,
+            event_type="provider_call_refreshed",
+            message="Refreshed call state directly from ElevenLabs.",
+            payload={"conversation_details": response},
+        )
+        return updated
 
     def _ingest_transcription_event(
         self,
@@ -231,8 +242,14 @@ class ElevenLabsTwilioProvider(PhoneProvider):
         )
         return updated
 
-    def _request_json(self, url: str, *, payload: dict[str, Any]) -> dict[str, Any]:
-        body = json.dumps(payload).encode("utf-8")
+    def _request_json(
+        self,
+        url: str,
+        *,
+        payload: dict[str, Any] | None = None,
+        method: str = "POST",
+    ) -> dict[str, Any]:
+        body = json.dumps(payload).encode("utf-8") if payload is not None else None
         request = urllib.request.Request(
             url,
             data=body,
@@ -240,7 +257,7 @@ class ElevenLabsTwilioProvider(PhoneProvider):
                 "Content-Type": "application/json",
                 "xi-api-key": self.config.api_key,
             },
-            method="POST",
+            method=method,
         )
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
@@ -292,3 +309,168 @@ def _extract_session_id(
     if transcript:
         return "phone:inbound"
     return None
+
+
+def _build_conversation_initiation_client_data(request: OutboundCallRequest) -> dict[str, Any]:
+    initiation_data: dict[str, Any] = {
+        "dynamic_variables": {
+            "talos_session_id": str(request.session_id or "").strip(),
+            "contact_name": str(request.contact_name or "").strip(),
+            "target_phone_number": str(request.to_number or "").strip(),
+            "purpose": str(request.purpose or "").strip(),
+            "brief_context": str(request.brief_context or "").strip(),
+            "message_to_deliver": str(request.message_to_deliver or "").strip(),
+            "caller_identity": str(request.caller_identity or "TALOS").strip() or "TALOS",
+        },
+    }
+    conversation_override = _build_conversation_config_override(request)
+    if conversation_override:
+        initiation_data["conversation_config_override"] = conversation_override
+    return initiation_data
+
+
+def _build_conversation_config_override(request: OutboundCallRequest) -> dict[str, Any]:
+    agent_override: dict[str, Any] = {}
+    prompt_override = _build_prompt_override(request)
+    if prompt_override:
+        agent_override["prompt"] = {"prompt": prompt_override}
+    first_message = _build_first_message(request)
+    if first_message:
+        agent_override["first_message"] = first_message
+    if not agent_override:
+        return {}
+    return {"agent": agent_override}
+
+
+def _build_prompt_override(request: OutboundCallRequest) -> str:
+    lines: list[str] = []
+    brief_context = str(request.brief_context or "").strip()
+    if brief_context:
+        lines.append(brief_context)
+    lines.extend(
+        [
+            "This is an outbound call that you initiated on behalf of the user.",
+            "Do not act confused about why you are calling and do not ask the recipient what the purpose is.",
+            f"Identify yourself as {str(request.caller_identity or 'TALOS').strip() or 'TALOS'}.",
+        ]
+    )
+    message_to_deliver = str(request.message_to_deliver or "").strip()
+    if message_to_deliver:
+        lines.append(f"Deliver this exact message verbatim before improvising: {message_to_deliver}")
+    purpose = str(request.purpose or "").strip()
+    if purpose:
+        lines.append(f"Call purpose: {purpose}")
+    contact_name = str(request.contact_name or "").strip()
+    if contact_name:
+        lines.append(f"Intended recipient name: {contact_name}")
+    return "\n".join(lines).strip()
+
+
+def _build_first_message(request: OutboundCallRequest) -> str:
+    caller_identity = str(request.caller_identity or "TALOS").strip() or "TALOS"
+    contact_name = _compact_text(str(request.contact_name or "").strip(), limit=80)
+    if contact_name:
+        prefix = f"Hello {contact_name}, this is {caller_identity}. "
+    else:
+        prefix = f"Hello, this is {caller_identity}. "
+    message_to_deliver = _compact_text(str(request.message_to_deliver or "").strip(), limit=360)
+    if message_to_deliver:
+        return f"{prefix}I'm calling with a quick message: {message_to_deliver}"
+    purpose = _compact_text(str(request.purpose or "").strip(), limit=180)
+    if purpose:
+        return f"{prefix}I'm calling regarding {purpose}."
+    return f"{prefix}I'm calling on behalf of the user."
+
+
+def _compact_text(value: str, *, limit: int) -> str:
+    compacted = " ".join(str(value or "").split())
+    if len(compacted) <= limit:
+        return compacted
+    return compacted[: limit - 3].rsplit(" ", 1)[0] + "..."
+
+
+def _snapshot_from_conversation_details(
+    response: dict[str, Any],
+    record: PhoneCallRecord | None,
+) -> dict[str, Any]:
+    metadata = dict(response.get("metadata") or {})
+    phone_call = dict(metadata.get("phone_call") or {})
+    initiation_data = dict(response.get("conversation_initiation_client_data") or {})
+    dynamic_variables = dict(initiation_data.get("dynamic_variables") or {})
+    raw_status = str(response.get("status") or "").strip().lower()
+    normalized_status = _normalize_conversation_status(raw_status, record)
+    termination_reason = str(metadata.get("termination_reason") or "").strip()
+    error_text = metadata.get("error")
+
+    return {
+        "call_id": str(response.get("conversation_id") or (record.call_id if record else "")).strip(),
+        "provider": "elevenlabs_twilio",
+        "provider_call_id": (
+            str(phone_call.get("call_sid") or "").strip()
+            or (record.provider_call_id if record else None)
+        ),
+        "conversation_id": str(response.get("conversation_id") or (record.call_id if record else "")).strip(),
+        "agent_id": response.get("agent_id") or (record.agent_id if record else None),
+        "session_id": (
+            str(dynamic_variables.get("talos_session_id") or "").strip()
+            or (record.session_id if record else None)
+        ),
+        "direction": (
+            str(phone_call.get("direction") or "").strip()
+            or (record.direction if record else "unknown")
+        ),
+        "remote_number": (
+            str(phone_call.get("external_number") or "").strip()
+            or (record.remote_number if record else "unknown")
+        ),
+        "contact_name": (
+            str(dynamic_variables.get("contact_name") or "").strip()
+            or (record.contact_name if record else None)
+        ),
+        "purpose": (
+            str(dynamic_variables.get("purpose") or "").strip()
+            or (record.purpose if record else None)
+        ),
+        "brief_context": (
+            str(dynamic_variables.get("brief_context") or "").strip()
+            or (record.brief_context if record else None)
+        ),
+        "status": normalized_status,
+        "outcome": termination_reason or (raw_status if raw_status else (record.outcome if record else None)),
+        "started_at": _unix_secs_to_iso8601(metadata.get("accepted_time_unix_secs"))
+        or _unix_secs_to_iso8601(metadata.get("start_time_unix_secs"))
+        or (record.started_at if record else None),
+        "transcript": response.get("transcript") if isinstance(response.get("transcript"), list) else [],
+        "last_error": _coerce_error_text(error_text),
+        "metadata": _merge_metadata(
+            record,
+            {
+                "conversation_details": response,
+            },
+        ),
+    }
+
+
+def _normalize_conversation_status(raw_status: str, record: PhoneCallRecord | None) -> str:
+    if raw_status in {"done", "completed"}:
+        return "completed"
+    if raw_status in {"failed", "error"}:
+        return "failed"
+    if raw_status == "in-progress":
+        return "in_progress"
+    if raw_status == "processing":
+        return "processing"
+    return raw_status or (record.status if record else "updated")
+
+
+def _unix_secs_to_iso8601(value: Any) -> str | None:
+    try:
+        seconds = int(value)
+    except (TypeError, ValueError):
+        return None
+    return datetime.fromtimestamp(seconds, tz=timezone.utc).isoformat(timespec="seconds")
+
+
+def _coerce_error_text(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text or None

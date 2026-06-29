@@ -133,6 +133,7 @@ class PhoneServiceTests(unittest.TestCase):
                     "mom",
                     purpose="Pickup",
                     brief_context="At the train station.",
+                    message_to_deliver="Tell her I am arriving at 6:20 PM and need a pickup.",
                     session_id="main-pc",
                 )
 
@@ -142,6 +143,12 @@ class PhoneServiceTests(unittest.TestCase):
         outbound_request = start_mock.call_args.args[0]
         self.assertEqual(outbound_request.to_number, "+15555550123")
         self.assertEqual(outbound_request.session_id, "main-pc")
+        self.assertEqual(
+            outbound_request.message_to_deliver,
+            "Tell her I am arriving at 6:20 PM and need a pickup.",
+        )
+        self.assertIn("identify yourself as TALOS", outbound_request.brief_context)
+        self.assertIn("Exact message to deliver", outbound_request.brief_context)
 
     def test_phone_call_status_refreshes_from_bridge_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir, mock.patch.dict(
@@ -201,6 +208,49 @@ class PhoneServiceTests(unittest.TestCase):
         self.assertEqual(result["call"]["status"], "completed")
         self.assertIn("Can you pick me up?", json.dumps(result["call"]["transcript"]))
         self.assertIn("Caller said", result["call"]["summary"])
+
+    def test_phone_call_status_refreshes_directly_from_provider_when_no_bridge(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, mock.patch.dict(
+            os.environ,
+            {
+                "TALOS_PHONE_PROVIDER": "elevenlabs_twilio",
+                "TALOS_PHONE_DB_PATH": str(Path(tmpdir) / "phone.sqlite3"),
+            },
+            clear=False,
+        ):
+            store = PhoneCallStore(Path(tmpdir) / "phone.sqlite3")
+            config = PhoneConfig.from_env()
+            provider = ElevenLabsTwilioProvider(config, store=store)
+            store.create_call(
+                call_id="conv_789",
+                provider="elevenlabs_twilio",
+                provider_call_id="CA789",
+                conversation_id="conv_789",
+                agent_id="agent_123",
+                session_id="main-pc",
+                direction="outbound",
+                remote_number="+15555550123",
+                contact_name="Mom",
+                purpose="Weather report",
+                brief_context="Deliver a weather update.",
+                status="initiated",
+            )
+            with mock.patch("talos.phone.service._build_provider", return_value=provider), mock.patch.object(
+                provider,
+                "fetch_call_details",
+                return_value=store.update_call(
+                    "conv_789",
+                    status="completed",
+                    outcome="caller_hung_up",
+                    transcript=[{"role": "assistant", "message": "It is 78 degrees and cloudy."}],
+                ),
+            ) as refresh_mock:
+                result = phone_call_status("conv_789", refresh=True)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["call"]["status"], "completed")
+        self.assertEqual(result["call"]["outcome"], "caller_hung_up")
+        refresh_mock.assert_called_once_with("conv_789")
 
     def test_summarize_phone_call_uses_bridge_ingested_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir, mock.patch.dict(

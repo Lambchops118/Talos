@@ -389,6 +389,7 @@ Notes:
 - v1 outbound calls are allowed only from the active foreground user session.
 - Raw E.164 numbers must be present in `TALOS_PHONE_ALLOWLIST`.
 - Named contacts must resolve through `TALOS_PHONE_CONTACTS`.
+- In the ElevenLabs agent security settings, enable `First message` and `System prompt` overrides. TALOS uses those per-call overrides, plus dynamic variables, so the phone agent knows who it called, why it called, and what message to deliver.
 - The bridge is the only component that should be internet-facing; keep the main TALOS runtime private.
 
 ### Text Chat Over Tailscale

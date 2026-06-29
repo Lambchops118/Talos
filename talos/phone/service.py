@@ -48,6 +48,7 @@ def place_phone_call(
     *,
     purpose: str = "",
     brief_context: str = "",
+    message_to_deliver: str = "",
     session_id: str = "default",
     runtime_lane: str = "foreground",
 ) -> dict[str, Any]:
@@ -60,13 +61,23 @@ def place_phone_call(
 
     to_number, contact_name = _resolve_target(contact_or_number, config)
     provider = get_phone_provider(config=config)
+    normalized_purpose = str(purpose or "").strip()
+    normalized_message = str(message_to_deliver or "").strip()
+    normalized_context = str(brief_context or "").strip()
+    composed_brief = _compose_outbound_call_brief(
+        contact_name=contact_name or contact_or_number,
+        purpose=normalized_purpose,
+        message_to_deliver=normalized_message,
+        brief_context=normalized_context,
+    )
     record = provider.start_outbound_call(
         OutboundCallRequest(
             session_id=session_id,
             to_number=to_number,
-            purpose=str(purpose or "").strip(),
-            brief_context=str(brief_context or "").strip(),
+            purpose=normalized_purpose,
+            brief_context=composed_brief,
             contact_name=contact_name,
+            message_to_deliver=normalized_message,
         )
     )
     _update_call_summary(record.call_id, refresh=False, provider=provider)
@@ -80,7 +91,9 @@ def place_phone_call(
 def phone_call_status(call_id: str, *, refresh: bool = True) -> dict[str, Any]:
     provider = get_phone_provider()
     if refresh:
-        _sync_from_bridge(provider)
+        synced = _sync_from_bridge(provider)
+        if synced == 0 and not PhoneConfig.from_env().bridge_url:
+            _refresh_call_from_provider(provider, str(call_id or "").strip())
     record = provider.get_call(str(call_id or "").strip())
     if record is None:
         raise RuntimeError(f"Unknown phone call '{call_id}'.")
@@ -103,7 +116,9 @@ def recent_phone_calls(limit: int = 10, *, refresh: bool = True) -> dict[str, An
 def summarize_phone_call(call_id: str, *, refresh: bool = True) -> dict[str, Any]:
     provider = get_phone_provider()
     if refresh:
-        _sync_from_bridge(provider)
+        synced = _sync_from_bridge(provider)
+        if synced == 0 and not PhoneConfig.from_env().bridge_url:
+            _refresh_call_from_provider(provider, str(call_id or "").strip())
     record = _update_call_summary(str(call_id or "").strip(), refresh=False, provider=provider)
     if record is None:
         raise RuntimeError(f"Unknown phone call '{call_id}'.")
@@ -219,6 +234,18 @@ def _sync_from_bridge(provider: PhoneProvider) -> int:
     return synced
 
 
+def _refresh_call_from_provider(provider: PhoneProvider, call_id: str) -> PhoneCallRecord | None:
+    normalized_call_id = str(call_id or "").strip()
+    if not normalized_call_id:
+        return None
+    if not isinstance(provider, ElevenLabsTwilioProvider):
+        return None
+    try:
+        return provider.fetch_call_details(normalized_call_id)
+    except Exception:
+        return provider.get_call(normalized_call_id)
+
+
 def _update_call_summary(
     call_id: str,
     *,
@@ -285,6 +312,34 @@ def _build_call_summary(record: PhoneCallRecord) -> str:
     if record.last_error and record.last_error != status:
         parts.append(f"Error: {_compact_text(record.last_error, limit=140)}.")
     return " ".join(parts).strip()
+
+
+def _compose_outbound_call_brief(
+    *,
+    contact_name: str,
+    purpose: str,
+    message_to_deliver: str,
+    brief_context: str,
+) -> str:
+    lines = [
+        "You are TALOS, the user's personal AI assistant, placing an outbound phone call.",
+        "When the recipient answers, immediately identify yourself as TALOS.",
+        f"Recipient: {str(contact_name or 'the intended contact').strip()}",
+    ]
+    if purpose:
+        lines.append(f"Primary objective: {purpose}")
+    if message_to_deliver:
+        lines.append(f"Exact message to deliver: {message_to_deliver}")
+    if brief_context:
+        lines.append(f"Additional context: {brief_context}")
+    lines.extend(
+        [
+            "Deliver the requested report or task result directly and concisely.",
+            "Do not invent facts beyond the message and context provided.",
+            "After delivering the message, confirm the recipient heard and understood it.",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def _first_transcript_message(transcript: list[dict[str, Any]], *, role: str) -> str | None:

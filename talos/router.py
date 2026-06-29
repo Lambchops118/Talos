@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import queue
+import re
 from typing import Optional
 
 from talos.agent import runtime as agent_runtime
@@ -11,6 +12,32 @@ from talos.state_store import StateStore
 
 
 BACKGROUND_ACK = "I can do that. I'm working on it now."
+PHONE_FOREGROUND_PATTERNS = (
+    re.compile(r"\bplace_phone_call\b"),
+    re.compile(r"\bcall now\b"),
+    re.compile(r"\bplace (?:the )?call\b"),
+    re.compile(r"\bmake (?:the |a )?call\b"),
+    re.compile(r"\btry (?:the )?call\b"),
+    re.compile(r"\bdial\b"),
+    re.compile(r"^phone\b"),
+    re.compile(r"\bring\b"),
+    re.compile(r"^call\b"),
+    re.compile(r"\bgive\b.{0,40}\ba call\b"),
+)
+CODE_CALL_EXCLUSIONS = {
+    "function",
+    "functions",
+    "method",
+    "methods",
+    "api",
+    "tool",
+    "tools",
+    "script",
+    "class",
+    "endpoint",
+    "number",
+    "numbers",
+}
 
 
 def _run_agent_command(
@@ -124,6 +151,36 @@ def _classify_with_context(
         return classify_request(command, source=source, requested_mode=requested_mode)
 
 
+def _must_run_in_foreground(command: str) -> bool:
+    normalized = " ".join(str(command or "").lower().split())
+    if not normalized:
+        return False
+    if normalized.startswith("call "):
+        tokens = set(normalized.split())
+        if tokens & CODE_CALL_EXCLUSIONS:
+            return False
+    if normalized.startswith("phone "):
+        tokens = set(normalized.split())
+        if tokens & CODE_CALL_EXCLUSIONS:
+            return False
+    return any(pattern.search(normalized) for pattern in PHONE_FOREGROUND_PATTERNS)
+
+
+def _enforce_foreground_for_sensitive_actions(
+    command: str,
+    decision: RequestClassification,
+) -> RequestClassification:
+    if decision.mode != "background":
+        return decision
+    if _must_run_in_foreground(command):
+        return RequestClassification(
+            mode="foreground",
+            reason="phone call actions must stay in the active foreground session",
+            response="",
+        )
+    return decision
+
+
 def _compact_text(value: str, limit: int) -> str:
     compacted = " ".join(str(value or "").split())
     if len(compacted) <= limit:
@@ -169,6 +226,7 @@ def router_loop(central_queue: queue.Queue, gui_queue: queue.Queue, stop_signal:
                     session_id="voice",
                     runtime_context=runtime_context,
                 )
+                decision = _enforce_foreground_for_sensitive_actions(vp.command, decision)
                 if decision.mode == "status":
                     _run_agent_command(
                         vp.command,
@@ -210,6 +268,7 @@ def router_loop(central_queue: queue.Queue, gui_queue: queue.Queue, stop_signal:
                     runtime_context=runtime_context,
                     requested_mode=tp.requested_mode,
                 )
+                decision = _enforce_foreground_for_sensitive_actions(tp.command, decision)
                 try:
                     if decision.mode == "status":
                         response_text = _run_agent_command(

@@ -41,6 +41,7 @@ class AgentRuntimePhoneToolTests(unittest.TestCase):
             "mom",
             purpose="pickup",
             brief_context="",
+            message_to_deliver="",
             session_id="main-pc",
             runtime_lane="foreground",
         )
