@@ -33,6 +33,7 @@ class OpenAICompatibleChatBackend(LLMBackend):
         api_key: str | None = None,
         temperature: float = 0.5,
         max_tokens: int = 400,
+        max_tokens_param: str = "max_tokens",
         client: Any | None = None,
         extra_body: dict[str, Any] | None = None,
     ) -> None:
@@ -41,6 +42,9 @@ class OpenAICompatibleChatBackend(LLMBackend):
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
+        # OpenAI's newer models require ``max_completion_tokens`` on Chat
+        # Completions; local servers (Ollama/vLLM) use the classic ``max_tokens``.
+        self.max_tokens_param = max_tokens_param or "max_tokens"
         self._extra_body = dict(extra_body or {})
         self._client = client if client is not None else self._build_client(base_url, api_key)
 
@@ -48,9 +52,14 @@ class OpenAICompatibleChatBackend(LLMBackend):
     def _build_client(base_url: str | None, api_key: str | None) -> Any:
         import openai
 
-        # Local servers (Ollama/vLLM) ignore the key but the SDK requires a
-        # non-empty value, so default to a harmless placeholder.
-        return openai.OpenAI(base_url=base_url or None, api_key=api_key or "not-needed")
+        if api_key:
+            return openai.OpenAI(base_url=base_url or None, api_key=api_key)
+        if base_url:
+            # Local servers (Ollama/vLLM) ignore the key but the SDK requires a
+            # non-empty value, so use a harmless placeholder.
+            return openai.OpenAI(base_url=base_url, api_key="not-needed")
+        # OpenAI with no explicit key: let the SDK read OPENAI_API_KEY from env.
+        return openai.OpenAI()
 
     def stream(
         self,
@@ -65,8 +74,8 @@ class OpenAICompatibleChatBackend(LLMBackend):
             "messages": messages,
             "stream": True,
             "temperature": self.temperature if temperature is None else temperature,
-            "max_tokens": self.max_tokens if max_tokens is None else max_tokens,
         }
+        request[self.max_tokens_param] = self.max_tokens if max_tokens is None else max_tokens
         chat_tools = responses_tools_to_chat_tools(tools)
         if chat_tools:
             request["tools"] = chat_tools

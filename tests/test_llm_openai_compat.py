@@ -149,6 +149,27 @@ class StreamingTests(unittest.TestCase):
         self.assertEqual(sent["tools"][0]["function"]["name"], "ping")
         self.assertTrue(sent["stream"])
 
+    def test_default_uses_max_tokens_param(self):
+        backend = OpenAICompatibleChatBackend(
+            model="test", max_tokens=123, client=FakeClient([_delta_chunk(finish_reason="stop")])
+        )
+        backend.complete([{"role": "user", "content": "x"}])
+        sent = backend._client.chat.completions.calls[0]
+        self.assertEqual(sent.get("max_tokens"), 123)
+        self.assertNotIn("max_completion_tokens", sent)
+
+    def test_openai_style_max_completion_tokens_param(self):
+        backend = OpenAICompatibleChatBackend(
+            model="test",
+            max_tokens=123,
+            max_tokens_param="max_completion_tokens",
+            client=FakeClient([_delta_chunk(finish_reason="stop")]),
+        )
+        backend.complete([{"role": "user", "content": "x"}])
+        sent = backend._client.chat.completions.calls[0]
+        self.assertEqual(sent.get("max_completion_tokens"), 123)
+        self.assertNotIn("max_tokens", sent)
+
 
 class MessageHelperTests(unittest.TestCase):
     def test_tool_result_message_shape(self):

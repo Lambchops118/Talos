@@ -24,7 +24,7 @@ from __future__ import annotations
 import os
 
 from talos.config import env_float, env_int, load_environment
-from talos.voice.backends.base import LLMBackend
+from talos.voice.backends.base import LLMBackend, STTBackend
 from talos.voice.backends.llm_openai_compat import OpenAICompatibleChatBackend
 
 
@@ -39,17 +39,49 @@ def get_llm_backend() -> LLMBackend:
     backend = os.getenv("TALOS_LLM_BACKEND", "openai_chat").strip().lower()
 
     if backend in {"openai_chat", "chat", "ollama", "vllm"}:
+        base_url = os.getenv("TALOS_LLM_BASE_URL", "").strip() or None
+        max_tokens_param = os.getenv("TALOS_LLM_MAX_TOKENS_PARAM", "").strip()
+        if not max_tokens_param:
+            is_openai = base_url is None or "openai.com" in base_url
+            max_tokens_param = "max_completion_tokens" if is_openai else "max_tokens"
         return OpenAICompatibleChatBackend(
             model=_required("TALOS_LLM_MODEL"),
-            base_url=os.getenv("TALOS_LLM_BASE_URL", "").strip() or None,
+            base_url=base_url,
             api_key=os.getenv("TALOS_LLM_API_KEY", "").strip() or None,
             temperature=env_float("TALOS_LLM_TEMPERATURE", 0.5),
             max_tokens=env_int("TALOS_LLM_MAX_TOKENS", 400),
+            max_tokens_param=max_tokens_param,
         )
 
     raise RuntimeError(
         f"Unsupported TALOS_LLM_BACKEND '{backend}'. Expected one of: "
         "openai_chat, ollama, vllm."
+    )
+
+
+def get_stt_backend() -> STTBackend:
+    """Construct the configured local speech-to-text backend.
+
+    ``TALOS_STT_BACKEND`` selects the implementation (default ``faster_whisper``).
+    Device/compute default to CUDA on the deploy box and CPU on the Mac; override
+    with ``TALOS_STT_DEVICE`` / ``TALOS_STT_COMPUTE_TYPE`` if needed.
+    """
+    load_environment()
+    backend = os.getenv("TALOS_STT_BACKEND", "faster_whisper").strip().lower()
+
+    if backend in {"faster_whisper", "faster-whisper", "local", "whisper"}:
+        from talos.voice.backends.stt_faster_whisper import FasterWhisperSTT
+
+        return FasterWhisperSTT(
+            model_size=os.getenv("TALOS_STT_MODEL", "distil-large-v3").strip() or "distil-large-v3",
+            device=os.getenv("TALOS_STT_DEVICE", "").strip() or None,
+            compute_type=os.getenv("TALOS_STT_COMPUTE_TYPE", "").strip() or None,
+            language=os.getenv("TALOS_STT_LANGUAGE", "en").strip() or None,
+            beam_size=env_int("TALOS_STT_BEAM_SIZE", 1),
+        )
+
+    raise RuntimeError(
+        f"Unsupported TALOS_STT_BACKEND '{backend}'. Expected 'faster_whisper'."
     )
 
 
